@@ -11,3 +11,7 @@ openai
 pandas
 fastapi
 uvicorn
+pydantic
+python-multipart
+aiofiles
+httpx

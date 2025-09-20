@@ -1,19 +1,8 @@
 {
-  "builds": [
+  "rewrites": [
     {
-      "src": "api/app.py",
-      "use": "@vercel/python"
+      "source": "/(.*)",
+      "destination": "/api/index"
     }
-  ],
-  "routes": [
-    {
-      "src": "/(.*)",
-      "dest": "api/app.py"
-    }
-  ],
-  "functions": {
-    "api/app.py": {
-      "runtime": "python3.9"
-    }
-  }
+  ]
 }
