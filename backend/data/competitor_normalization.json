@@ -1,0 +1,88 @@
+{
+  "variant_to_canonical": {
+    "at&t": "AT&T",
+    "at and t": "AT&T",
+    "a t t": "AT&T",
+    "att": "AT&T",
+    "att.net": "AT&T",
+
+    "t-mobile": "T-Mobile",
+    "tmobile": "T-Mobile",
+    "t mobile": "T-Mobile",
+    "t  mobile": "T-Mobile",
+    "t-mobile": "T-Mobile",
+    "team over": "T-Mobile",
+
+    "verizon": "Verizon",
+
+    "dish": "Dish Network",
+    "dish network": "Dish Network",
+    "dish net": "Dish Network",
+    "dish  net": "Dish Network",
+
+    "boost": "Boost Mobile",
+    "boost mobile": "Boost Mobile",
+
+    "frontier": "Frontier",
+
+    "hughesnet": "HughesNet",
+    "hughes net": "HughesNet",
+    "hughes  net": "HughesNet",
+
+    "google fiber": "Google Fiber",
+    "google  fiber": "Google Fiber",
+
+    "windstream": "Windstream/Kinetic",
+    "kinetic": "Windstream/Kinetic",
+    "kinetic windstream": "Windstream/Kinetic",
+    "kinetic windstring": "Windstream/Kinetic",
+    "one string": "Windstream/Kinetic",
+    "one string is a kinetic windstring": "Windstream/Kinetic",
+
+    "metro": "Metro by T-Mobile",
+    "metro pc": "Metro by T-Mobile",
+    "metro pcs": "Metro by T-Mobile",
+    "metro phone": "Metro by T-Mobile",
+
+    "circle fiber": "Circle Fiber (Circle One Cyber)",
+    "circle one cyber": "Circle Fiber (Circle One Cyber)",
+    "cyber one": "Circle Fiber (Circle One Cyber)",
+    "circle  one cyber": "Circle Fiber (Circle One Cyber)",
+
+    "greenlight": "Greenlight",
+    "green light": "Greenlight",
+    "green light fiber": "Greenlight",
+
+    "brightspeed": "Brightspeed",
+    "bright speed": "Brightspeed",
+    "bright  speed": "Brightspeed",
+
+    "directv": "DIRECTV",
+    "direct tv": "DIRECTV",
+    "direct t v": "DIRECTV",
+
+    "vonage": "Vonage",
+
+    "microfiber cables": "Greenlight",
+    "micro cables": "Greenlight",
+
+    "comcast": "Comcast/Xfinity",
+    "xfinity": "Comcast/Xfinity",
+
+    "spectrum mobile": "Spectrum Mobile"
+  },
+
+  "normalization_notes": {
+    "preprocess": [
+      "lowercase the text",
+      "collapse repeated spaces/dashes",
+      "normalize '&' and 'and' (e.g., 'at & t' → 'at and t')"
+    ],
+    "matching_order": [
+      "exact dictionary lookup (after preprocessing)",
+      "if no hit: try fuzzy match (distance ≤ 2) to any dictionary key",
+      "if still no hit and text is generic (e.g., 'fiber', 'cable', 'satellite'), label as 'Generic/Unclear' rather than forcing a competitor"
+    ],
+    "traceability": "Store both the raw variant you matched and the canonical name in your outputs."
+  }
+}
