@@ -1,17 +1,26 @@
 "use client"
-
+import { SuggestedPrompts } from "./suggested-prompts"
 import { useState, useRef, useEffect } from "react"
 import { ChatMessage } from "./chat-message"
+import { LoadingMessage } from "./loading-message"
 import { ChatInput } from "./chat-input"
 import { ChatHeader } from "./chat-header"
 import { Card } from "@/components/ui/card"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { chatClient } from "@/lib/chat-client"
+import { isAPIError, type ChatResponse } from "@/types/api"
+import { AlertCircle } from "lucide-react"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 
 interface Message {
   id: string
   content: string
   isUser: boolean
   timestamp: Date
+  metadata?: {
+    sources?: string[]
+    analysisType?: string
+  }
 }
 
 export function ChatInterface() {
@@ -19,13 +28,23 @@ export function ChatInterface() {
     {
       id: "welcome",
       content:
-        "Hello! I'm your Charter VIP Assistant. I'm here to help you with any questions about Charter's business intelligence. How can I assist you today?",
+        "Hello! I'm AI-Leen. How can I assist you today?",
       isUser: false,
       timestamp: new Date(),
     },
   ])
   const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [sessionId, setSessionId] = useState<string | null>(null)
   const scrollAreaRef = useRef<HTMLDivElement>(null)
+
+  // Initialize session on mount
+  useEffect(() => {
+    const storedSessionId = chatClient.getStoredSessionId()
+    if (storedSessionId) {
+      setSessionId(storedSessionId)
+    }
+  }, [])
 
   const scrollToBottom = () => {
     if (scrollAreaRef.current) {
@@ -41,6 +60,9 @@ export function ChatInterface() {
   }, [messages])
 
   const handleSendMessage = async (content: string) => {
+    // Clear any previous errors
+    setError(null)
+
     const userMessage: Message = {
       id: Date.now().toString(),
       content,
@@ -52,58 +74,76 @@ export function ChatInterface() {
     setIsLoading(true)
 
     try {
-      // TODO: Replace with actual FastAPI backend call
-      const response = await fetch("/api/chat", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ message: content }),
-      })
+      const response = await chatClient.sendMessage(content, sessionId)
 
-      if (!response.ok) {
-        throw new Error("Failed to get response")
+      if (isAPIError(response)) {
+        setError(response.detail || response.error)
+        
+        const errorMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          content: `I apologize, but I encountered an error: ${response.error}. Please try again or rephrase your question.`,
+          isUser: false,
+          timestamp: new Date(),
+        }
+        setMessages((prev) => [...prev, errorMessage])
+      } else {
+        const chatResponse = response as ChatResponse
+        
+        // Update session ID if needed
+        if (chatResponse.session_id && chatResponse.session_id !== sessionId) {
+          setSessionId(chatResponse.session_id)
+        }
+
+        const assistantMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          content: chatResponse.reply || "I couldn't generate a response. Please try again.",
+          isUser: false,
+          timestamp: new Date(),
+          metadata: {
+            sources: chatResponse.sources,
+            analysisType: chatResponse.metadata?.analysis_type
+          }
+        }
+
+        setMessages((prev) => [...prev, assistantMessage])
       }
-
-      const data = await response.json()
-
-      const assistantText =
-        // Backend (FastAPI) returns { reply }
-        data.reply ||
-        // older/other shapes
-        data.response || data.result || null
-
-      const assistantMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        content:
-          assistantText ||
-          "I'm sorry, I'm having trouble connecting to our systems right now. Please try again in a moment.",
-        isUser: false,
-        timestamp: new Date(),
-      }
-
-      setMessages((prev) => [...prev, assistantMessage])
     } catch (error) {
       console.error("Chat error:", error)
+      setError("Network error occurred. Please check your connection.")
 
-      // Fallback response for demo purposes
-      const fallbackMessage: Message = {
+      const errorMessage: Message = {
         id: (Date.now() + 1).toString(),
         content:
-          "Thank you for your message. I'm currently connecting to our Azure AI systems to provide you with the best possible assistance. ",
+          "I'm having trouble connecting to the backend services. Please ensure the backend is running and try again.",
         isUser: false,
         timestamp: new Date(),
       }
 
-      setMessages((prev) => [...prev, fallbackMessage])
+      setMessages((prev) => [...prev, errorMessage])
     } finally {
       setIsLoading(false)
     }
   }
 
+  const handleClearSession = async () => {
+    if (sessionId) {
+      await chatClient.clearSession(sessionId)
+      setSessionId(null)
+      setMessages([messages[0]]) // Keep only welcome message
+      setError(null)
+    }
+  }
+
   return (
-    <Card className="flex flex-col  max-w-2xl mx-auto shadow-lg">
-      <ChatHeader />
+    <Card className="flex flex-col  max-w-4xl mx-auto shadow-lg">
+      <ChatHeader onClearSession={handleClearSession} />
+
+      {error && (
+        <Alert variant="destructive" className="mx-4 mt-2">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
 
       <ScrollArea ref={scrollAreaRef} className="flex-1 p-4">
         <div className="space-y-4">
@@ -113,24 +153,16 @@ export function ChatInterface() {
               message={message.content}
               isUser={message.isUser}
               timestamp={message.timestamp}
+              metadata={message.metadata}
             />
           ))}
 
-          {isLoading && (
-            <div className="flex justify-start">
-              <div className="flex items-center gap-2 p-3 bg-muted rounded-lg">
-                <div className="flex gap-1">
-                  <div className="w-2 h-2 bg-primary rounded-full animate-bounce [animation-delay:-0.3s]"></div>
-                  <div className="w-2 h-2 bg-primary rounded-full animate-bounce [animation-delay:-0.15s]"></div>
-                  <div className="w-2 h-2 bg-primary rounded-full animate-bounce"></div>
-                </div>
-                <span className="text-sm text-muted-foreground">Charter VIP is typing...</span>
-              </div>
-            </div>
-          )}
+          {isLoading && <LoadingMessage />}
         </div>
       </ScrollArea>
-
+      {messages.length === 1 && !isLoading && (
+        <SuggestedPrompts onSelectPrompt={handleSendMessage} />
+      )}
       <ChatInput onSendMessage={handleSendMessage} isLoading={isLoading} />
     </Card>
   )

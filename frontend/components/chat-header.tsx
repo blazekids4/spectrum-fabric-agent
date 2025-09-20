@@ -1,35 +1,60 @@
-import Image from "next/image"
 import { Card } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { RefreshCw, Activity } from "lucide-react"
+import { useState, useEffect } from "react"
+import { chatClient } from "@/lib/chat-client"
+import { cn } from "@/lib/utils"
+interface ChatHeaderProps {
+  onClearSession?: () => void
+}
 
-export function ChatHeader() {
+export function ChatHeader({ onClearSession }: ChatHeaderProps) {
+  const [isHealthy, setIsHealthy] = useState<boolean | null>(null)
+
+  useEffect(() => {
+    // Check backend health on mount
+    const checkHealth = async () => {
+      const health = await chatClient.checkHealth()
+      setIsHealthy(health.status === "healthy")
+    }
+    checkHealth()
+
+    // Recheck every 30 seconds
+    const interval = setInterval(checkHealth, 30000)
+    return () => clearInterval(interval)
+  }, [])
+
   return (
-    <Card className="border-b rounded-none bg-card/50 backdrop-blur-sm">
-      <div className="flex items-center gap-3 p-4">
-        <div className="relative">
-          <Image
-            src="/charter-logo.png"
-            alt="Charter Communications"
-            width={120}
-            height={40}
-            className="h-8 w-auto"
-            priority
-          />
-        </div>
-
-        <div className="flex-1">
-          <div className="flex items-center gap-2">
-            <h1 className="font-semibold text-lg text-balance">VIP Assistant</h1>
-            <Badge variant="secondary" className="text-xs">
-              AI Powered
-            </Badge>
+    <Card className="rounded-none border-0 border-b p-4 bg-gradient-to-r from-primary/1 to-primary/10">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <img src="/AI_icon.jpg" alt="Spectrum VIP" className="h-8 w-8" />
+          <div>
+            <h2 className="text-lg font-semibold">Ask AI-Leen</h2>
+            {/* <p className="text-xs text-muted-foreground">Competitive Intelligence & Analytics</p> */}
           </div>
-          <p className="text-sm text-muted-foreground">Your dedicated business intelligence agent</p>
         </div>
-
-        <div className="flex items-center gap-1">
-          <div className="h-2 w-2 bg-green-500 rounded-full animate-pulse"></div>
-          <span className="text-xs text-muted-foreground">Online</span>
+        
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1">
+            <Activity className={cn("h-3 w-3", isHealthy ? "text-green-500" : "text-red-500")} />
+            <span className="text-xs text-muted-foreground">
+              {isHealthy === null ? "Checking..." : isHealthy ? "Connected" : "Disconnected"}
+            </span>
+          </div>
+          
+          {onClearSession && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onClearSession}
+              className="h-8 px-2"
+              title="Start new conversation"
+            >
+              <RefreshCw className="h-4 w-4" />
+              <span className="ml-1 text-xs">New Chat</span>
+            </Button>
+          )}
         </div>
       </div>
     </Card>
