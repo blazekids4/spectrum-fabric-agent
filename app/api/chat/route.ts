@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 
 // Backend URL configuration - now points to the main app.py endpoint
-const BACKEND_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8001"
+const BACKEND_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:5328"  // Change from 8001 to 5328
 const CHAT_ENDPOINT = `${BACKEND_BASE_URL}/chat`
 
 // Timeout configuration for long-running requests

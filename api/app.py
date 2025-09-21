@@ -583,4 +583,5 @@ handler = app
 # Development server
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=5328)
+    port = int(os.getenv("BACKEND_PORT", "5328"))
+    uvicorn.run(app, host="127.0.0.1", port=port)
