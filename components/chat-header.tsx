@@ -4,6 +4,7 @@ import { RefreshCw, Activity } from "lucide-react"
 import { useState, useEffect } from "react"
 import { chatClient } from "@/lib/chat-client"
 import { cn } from "@/lib/utils"
+import Image from "next/image"
 interface ChatHeaderProps {
   onClearSession?: () => void
 }
@@ -24,18 +25,33 @@ export function ChatHeader({ onClearSession }: ChatHeaderProps) {
     return () => clearInterval(interval)
   }, [])
 
-  return (
-    <Card className="rounded-none border-0 border-b p-4 bg-gradient-to-r from-primary/1 to-primary/10">
+    return (
+    <Card className="rounded-none border-0 border-b p-4 bg-gradient-to-r from-primary/1 to-primary/2">
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <img src="/AI_icon.jpg" alt="Spectrum VIP" className="h-8 w-8" />
-          <div>
-            <h2 className="text-lg font-semibold">Ask AI-Leen</h2>
-            {/* <p className="text-xs text-muted-foreground">Competitive Intelligence & Analytics</p> */}
+        {/* Left: Spectrum Logo */}
+        <div className="flex-shrink-0">
+          <Image
+            src="/spec_large.png"
+            alt="Spectrum VIP Assistant Logo"
+            width={120}
+            height={120}
+            className="object-contain"
+            priority
+          />
+        </div>
+        
+        {/* Center: Ask AI-Leen */}
+        <div className="flex-1 flex justify-center">
+          <div className="flex items-center gap-3">
+            <img src="/AI_icon.jpg" alt="AI-Leen Icon" className="h-8 w-8 rounded-full" />
+            <div>
+              <h2 className="text-lg font-semibold">Ask AI-Leen</h2>
+            </div>
           </div>
         </div>
         
-        <div className="flex items-center gap-2">
+        {/* Right: Status and New Chat button */}
+        <div className="flex items-center gap-2 flex-shrink-0">
           <div className="flex items-center gap-1">
             <Activity className={cn("h-3 w-3", isHealthy ? "text-green-500" : "text-red-500")} />
             <span className="text-xs text-muted-foreground">

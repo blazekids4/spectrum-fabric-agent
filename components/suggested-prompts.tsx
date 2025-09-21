@@ -10,12 +10,12 @@ const prompts = [
   {
     icon: <TrendingUp className="h-4 w-4" />,
     title: "Competitor Analysis",
-    prompt: "What are the top competitor mentions in our call transcripts this week?"
+    prompt: "What are the top competitor mentions in our call transcripts on September 1st?"
   },
   {
     icon: <Users className="h-4 w-4" />,
     title: "Customer Switching",
-    prompt: "Show me customer switching patterns between Charter and AT&T"
+    prompt: "What were the most common cancellation reasons on September 1st?"
   },
   {
     icon: <ClipboardPen className="h-4 w-4" />,
@@ -25,7 +25,7 @@ const prompts = [
   {
     icon: <Search className="h-4 w-4" />,
     title: "Executive Summary",
-    prompt: "As CEO of Charter, give me a summary of key insights from the latest customer calls"
+    prompt: "As Executive Leader of Charter, give me a summary of key insights from the latest customer calls"
   }
 ]
 

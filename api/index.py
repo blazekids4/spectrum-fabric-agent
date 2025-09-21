@@ -1,4 +1,4 @@
-from backend.app import app as _app
+from app import app as _app
 
 # Export an ASGI callable that strips the '/api' prefix from the incoming HTTP path.
 # Vercel will call this file for requests under /api/*; the request.path will include /api,

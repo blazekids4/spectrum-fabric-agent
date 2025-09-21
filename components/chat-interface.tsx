@@ -28,7 +28,7 @@ export function ChatInterface() {
     {
       id: "welcome",
       content:
-        "Hello! I'm AI-Leen. How can I assist you today?",
+        "Hello! I'm AI-Leen, your AI assistant for customer insights. How can I help you today?",
       isUser: false,
       timestamp: new Date(),
     },

@@ -38,7 +38,7 @@ export function ChatInput({ onSendMessage, isLoading = false, disabled = false }
         value={message}
         onChange={(e) => setMessage(e.target.value)}
         onKeyDown={handleKeyDown}
-        placeholder="Ask Charter VIP anything..."
+        placeholder="Ask AI-Leen about customer calls..."
         disabled={isLoading || disabled}
         className="flex-1 text-sm"
       />

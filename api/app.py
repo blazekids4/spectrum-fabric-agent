@@ -20,6 +20,11 @@ import asyncio
 from contextlib import asynccontextmanager
 import json
 
+
+# Set UTF-8 encoding for Windows
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding='utf-8')
+    sys.stderr.reconfigure(encoding='utf-8')
 # Add current directory to path for imports
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
@@ -578,4 +583,4 @@ handler = app
 # Development server
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=8001)
+    uvicorn.run(app, host="127.0.0.1", port=5328)
