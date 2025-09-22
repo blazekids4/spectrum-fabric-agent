@@ -1,138 +1,196 @@
-# Charter VIP / Spectrum Fabric Agent
+# Spectrum Fabric Agent
 
-Full-stack application consisting of:
+A Next.js and FastAPI application that provides a chat interface to interact with Microsoft Fabric Data Agents. This application enables users to query and analyze data through a conversational interface powered by Azure AI.
 
-* Frontend: Next.js 15 (App Router) served via Azure App Service
-* Backend: FastAPI (Python 3.11) providing AI / Fabric Data Agent capabilities
-* Infra: Provisioned with Azure Developer CLI (azd) + Bicep (`infra/main.bicep`)
+## Table of Contents
+
+- [Overview](#overview)
+- [Architecture](#architecture)
+- [Prerequisites](#prerequisites)
+- [Local Development Setup](#local-development-setup)
+- [Deployment Options](#deployment-options)
+  - [Azure Deployment](#azure-deployment)
+  - [Vercel Deployment](#vercel-deployment)
+- [Environment Variables](#environment-variables)
+- [Project Structure](#project-structure)
+- [Contributing](#contributing)
+- [License](#license)
+
+## Overview
+
+Spectrum Fabric Agent is a web application that provides a chat interface for interacting with Microsoft Fabric data. It uses a FastAPI backend to communicate with Fabric Data Agents and a Next.js frontend for the user interface. The application supports multi-turn conversations and can be deployed to Azure App Service or Vercel.
 
 ## Architecture
 
-```text
-Browser -> Next.js (frontend Web App) -> /api/* rewrite -> FastAPI backend Web App
-                                    -> Azure OpenAI / Language / other Azure services
-```
-
-Key Azure resources (created by Bicep):
-
-* App Service Plan (Linux)
-* Frontend Web App (Node 20 LTS)
-* Backend Web App (Python 3.11)
-* Application Insights (telemetry)
+- **Frontend**: Next.js application with TypeScript and Tailwind CSS
+- **Backend**: FastAPI Python application
+- **Infrastructure**: Bicep templates for Azure deployment
 
 ## Prerequisites
 
-* Node.js 20+
-* Python 3.11+
-* Azure CLI: <https://learn.microsoft.com/cli/azure/install-azure-cli>
-* Azure Developer CLI (azd): <https://learn.microsoft.com/azure/developer/azure-developer-cli/install-azd>
-* An Azure subscription
+- Node.js 22.x or later
+- npm 10.x or later (or pnpm)
+- Python 3.12 or later
+- Microsoft Azure subscription (for Azure deployment)
+- Microsoft Fabric workspace with Data Agent configured
+- Vercel account (for Vercel deployment)
+
+## Local Development Setup
+
+1. **Clone the repository**
+
+   ```bash
+   git clone https://github.com/yourusername/spectrum-fabric-agent.git
+   cd spectrum-fabric-agent
+   ```
+
+2. **Set up environment variables**
+
+   Create a `.env` file in the root directory with the following variables:
+
+   ```env
+   TENANT_ID=your-azure-tenant-id
+   DATA_AGENT_URL=your-fabric-data-agent-url
+   ```
+
+   And create a `.env` file in the `api` directory with the same variables:
+
+   ```env
+   TENANT_ID=your-azure-tenant-id
+   DATA_AGENT_URL=your-fabric-data-agent-url
+   ```
+
+3. **Install frontend dependencies**
+
+   ```bash
+   npm install
+   # or
+   pnpm install
+   ```
+
+4. **Install backend dependencies**
+
+   ```bash
+   cd api
+   pip install -r requirements.txt
+   cd ..
+   ```
+
+5. **Run the application locally**
+
+   ```bash
+   npm run dev
+   # or
+   pnpm dev
+   ```
+
+   This will start both the Next.js frontend and FastAPI backend in development mode. The application will be available at [http://localhost:3000](http://localhost:3000).
+
+## Deployment Options
+
+### Azure Deployment
+
+This project includes Bicep templates for deploying to Azure App Service.
+
+1. **Log in to Azure**
+
+   ```bash
+   az login
+   ```
+
+2. **Set your subscription**
+
+   ```bash
+   az account set --subscription <your-subscription-id>
+   ```
+
+3. **Deploy using the Azure Developer CLI (azd)**
+
+   ```bash
+   azd auth login
+   azd init
+   azd env set AZURE_TENANT_ID <your-tenant-id>
+   azd env set DATA_AGENT_URL <your-data-agent-url>
+   azd up
+   ```
+
+   Alternatively, you can use the included PowerShell script:
+
+   ```powershell
+   .\deploy-to-azure.ps1 -resourceGroupName <your-resource-group> -location <azure-region>
+   ```
+
+4. **Manual deployment**
+
+   You can also deploy the Bicep template manually:
+
+   ```bash
+   az group create --name <your-resource-group> --location <azure-region>
+   az deployment group create --resource-group <your-resource-group> --template-file infra/main.bicep --parameters tenantId=<your-tenant-id> dataAgentUrl=<your-data-agent-url>
+   ```
+
+### Vercel Deployment
+
+1. **Install Vercel CLI**
+
+   ```bash
+   npm install -g vercel
+   ```
+
+2. **Deploy the frontend to Vercel**
+
+   ```bash
+   vercel
+   ```
+
+3. **Configure environment variables in Vercel**
+
+   Add the following environment variables in your Vercel project settings:
+
+   - `TENANT_ID`
+   - `DATA_AGENT_URL`
+   - `API_URL` (URL to your deployed API endpoint)
+
+4. **Deploy the backend separately**
+
+   For the backend, you'll need to deploy the FastAPI application separately. This can be done using Azure App Service or another Python hosting service.
+
+   If using Azure App Service, follow these steps:
+
+   ```bash
+   cd api
+   az webapp up --name <your-api-app-name> --resource-group <your-resource-group> --sku B1 --runtime "PYTHON:3.12"
+   ```
+
+   Then update the `API_URL` in your Vercel environment variables to point to this deployed backend.
 
 ## Environment Variables
 
-See `.env.example` for the full list. Copy it to `.env` for local dev:
+| Name | Description | Required |
+|------|-------------|----------|
+| `TENANT_ID` | Azure Tenant ID | Yes |
+| `DATA_AGENT_URL` | URL for the Fabric Data Agent | Yes |
+| `PORT` | Port to run the Next.js server on (default: 3000) | No |
 
-```bash
-cp .env.example .env
-```
-Important variables:
+## Project Structure
 
-* `BACKEND_URL` / `NEXT_PUBLIC_API_URL`: Frontend -> backend routing
-* `AZURE_OPENAI_ENDPOINT`, `MODEL_DEPLOYMENT_NAME`: Azure OpenAI integration
-* `LANGUAGE_ENDPOINT`, `LANGUAGE_KEY`: Azure AI Language
-* Observability: `APPLICATIONINSIGHTS_CONNECTION_STRING`
-
-In production: set via `azd env set` or App Service Configuration UI; consider Azure Key Vault for secrets.
-
-## Local Development
-
-Terminal 1 (backend):
-
-```bash
-cd api
-python -m venv .venv && source .venv/bin/activate  # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-uvicorn app:app --host 127.0.0.1 --port 5328 --reload
-```
-Terminal 2 (frontend):
-
-```bash
-npm install
-npm run dev
-```
-Navigate to <http://localhost:3000>
-
-## Azure Deployment (Recommended: azd)
-
-Initialize (first time):
-
-```bash
-azd auth login
-azd init --template .
-```
-Provision infrastructure (preview changes first):
-
-```bash
-azd provision --preview
-azd provision
-```
-Deploy application code:
-
-```bash
-azd deploy
-```
-Retrieve endpoints:
-
-```bash
-azd env get-values
-```
-Set environment values (examples):
-
-```bash
-azd env set MODEL_DEPLOYMENT_NAME gpt-4o-mini
-azd env set AZURE_OPENAI_ENDPOINT https://<your-openai>.openai.azure.com
-azd env set LANGUAGE_ENDPOINT https://<your-lang>.cognitiveservices.azure.com
-azd deploy
+```text
+/
+├── api/                  # FastAPI backend
+│   ├── app.py            # Main FastAPI application
+│   ├── fabric_agent_service.py  # Service for Fabric Data Agent interaction
+│   └── requirements.txt  # Python dependencies
+├── app/                  # Next.js pages and routes
+├── components/           # React components
+├── infra/               # Azure Bicep templates
+├── public/              # Static assets
+└── ...
 ```
 
-## Manual Deployment (Legacy Script)
+## Contributing
 
-A PowerShell script `deploy-to-azure.ps1` exists for manual zip deployment to two Web Apps. Prefer azd + Bicep for reproducibility.
-
-## Infra Details
-
-See `infra/main.bicep` for resource definitions. Key app settings applied:
-
-* Frontend `BACKEND_URL`, `NEXT_PUBLIC_API_URL` point to backend Web App hostname
-* Backend startup command: Uvicorn serving FastAPI on port 8000
-* Application Insights connection string automatically injected
-
-## Production Hardening (Next Steps)
-
-* Add Azure Key Vault & reference secrets via `@Microsoft.KeyVault(SecretUri=...)`
-* Enable Managed Identity and grant access to downstream services
-* Add Health Probe endpoint (e.g. `/healthz`) in FastAPI
-* Configure logging export to Log Analytics Workspace
-* Add CI/CD (GitHub Actions) invoking `azd provision --preview` + `azd deploy`
-* Add rate limiting / auth middleware
-* Set CORS allowed origins explicitly in backend
-
-## Troubleshooting
-
-| Issue | Likely Cause | Fix |
-|-------|--------------|-----|
-| 404 on /api calls | BACKEND_URL unset | Set in App Settings / redeploy |
-| 500 after deploy | Missing env secret | Add via `azd env set` then `azd deploy` |
-| Slow cold starts | Plan tier too small | Upgrade to P1v3 or enable Always On |
-| Image optimization warnings | Using `images.unoptimized` | Configure Azure Blob / CDN and enable Next.js image opt |
-
-## Clean Up
-
-Delete all resources:
-
-```bash
-azd down --purge
-```
+Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
-Internal / TBD.
+
+This project is licensed under the MIT License - see the LICENSE file for details.
