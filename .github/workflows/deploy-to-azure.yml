@@ -1,0 +1,60 @@
+name: Deploy to Azure Web Apps
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  NODE_VERSION: '20.x'
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  build-and-deploy-frontend:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        
+    - name: npm install and build
+      run: |
+        npm install
+        npm run build
+        
+    - name: 'Deploy to Azure Web App'
+      uses: azure/webapps-deploy@v2
+      with:
+        app-name: ${{ secrets.FRONTEND_APP_NAME }}
+        publish-profile: ${{ secrets.FRONTEND_PUBLISH_PROFILE }}
+        package: .
+        
+  build-and-deploy-backend:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v3
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+        
+    - name: Create and start virtual environment
+      run: |
+        python -m venv venv
+        source venv/bin/activate
+        
+    - name: Install dependencies
+      run: |
+        cd api
+        pip install -r requirements.txt
+        
+    - name: 'Deploy to Azure Web App'
+      uses: azure/webapps-deploy@v2
+      with:
+        app-name: ${{ secrets.BACKEND_APP_NAME }}
+        publish-profile: ${{ secrets.BACKEND_PUBLISH_PROFILE }}
+        package: ./api

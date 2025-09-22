@@ -9,14 +9,14 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
-    rewrites: async () => {
+  output: 'standalone', // Important for Azure deployment
+  rewrites: async () => {
+    // Use environment variable for backend URL
+    const backendUrl = process.env.BACKEND_URL || 'http://127.0.0.1:5328'
     return [
       {
         source: '/api/:path*',
-        destination:
-          process.env.NODE_ENV === 'development'
-            ? 'http://127.0.0.1:5328/api/:path*'
-            : '/api/',
+        destination: `${backendUrl}/api/:path*`,
       },
     ]
   },

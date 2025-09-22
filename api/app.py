@@ -113,9 +113,10 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:3000",  # Local development
-        "https://*.vercel.app",   # Vercel preview deployments
-        os.getenv("FRONTEND_URL", "https://charter-vip.vercel.app")  # Production
+        "http://localhost:3000",
+        "https://*.vercel.app",
+        "https://*.azurewebsites.net",  # Add Azure Web Apps domain
+        os.getenv("FRONTEND_URL", "https://charter-vip.vercel.app")
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -580,8 +581,9 @@ async def general_exception_handler(request, exc):
 # For Vercel deployment
 handler = app
 
-# Development server
+
+import uvicorn
+    
 if __name__ == "__main__":
-    import uvicorn
-    port = int(os.getenv("BACKEND_PORT", "5328"))
-    uvicorn.run(app, host="127.0.0.1", port=port)
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run("app:app", host="0.0.0.0", port=port)

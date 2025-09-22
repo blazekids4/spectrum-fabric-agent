@@ -10,8 +10,9 @@
     "backend-dev": "cd api && python app.py",
     "next-dev": "next dev",
     "dev": "concurrently \"pnpm run next-dev\" \"pnpm run backend-dev\"",
-    "build": "next build",
+  "build": "next build",
     "start": "next start",
+    "start:azure": "node server.js",
     "lint": "next lint"
   },
   "dependencies": {

@@ -1,0 +1,27 @@
+name: spectrum-fabric-agent
+metadata:
+  template: appservice-multi
+infra:
+  provider: bicep
+  path: infra
+  module: main
+  parameters:
+    modelDeploymentName: ${MODEL_DEPLOYMENT_NAME}
+    azureOpenAiEndpoint: ${AZURE_OPENAI_ENDPOINT}
+    languageEndpoint: ${LANGUAGE_ENDPOINT}
+services:
+  frontend:
+    project: .
+    language: js
+    host: appservice
+    hooks:
+      predeploy:
+        windows:
+          shell: pwsh
+          run: |
+            npm install
+            npm run build
+  api:
+    project: api
+    language: python
+    host: appservice

@@ -59,20 +59,40 @@ class FabricDataAgentClient:
         
         self._authenticate()
     
+    # def _authenticate(self):
+    #     """
+    #     Perform interactive browser authentication and get initial token.
+    #     """
+    #     try:
+    #         print("\n🔐 Starting authentication...")
+    #         print("A browser window will open for you to sign in to your Microsoft account.")
+            
+    #         # Create credential for interactive authentication
+    #         self.credential = InteractiveBrowserCredential(
+    #             tenant_id=self.tenant_id,
+    #             # Optional: specify redirect_uri if needed
+    #             # redirect_uri="http://localhost:8400"
+    #         )
+            
+    #         # Get initial token
+    #         self._refresh_token()
+            
+    #         print("✅ Authentication successful!")
+            
+    #     except Exception as e:
+    #         print(f"❌ Authentication failed: {e}")
+    #         raise
+    
     def _authenticate(self):
         """
-        Perform interactive browser authentication and get initial token.
+        Perform authentication - updated for Azure Web Apps.
         """
         try:
             print("\n🔐 Starting authentication...")
-            print("A browser window will open for you to sign in to your Microsoft account.")
             
-            # Create credential for interactive authentication
-            self.credential = InteractiveBrowserCredential(
-                tenant_id=self.tenant_id,
-                # Optional: specify redirect_uri if needed
-                # redirect_uri="http://localhost:8400"
-            )
+            # Use DefaultAzureCredential for Azure Web Apps
+            from azure.identity import DefaultAzureCredential
+            self.credential = DefaultAzureCredential()
             
             # Get initial token
             self._refresh_token()
