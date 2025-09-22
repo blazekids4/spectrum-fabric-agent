@@ -1,32 +1,28 @@
 @description('Name prefix for all resources')
-param name string = 'chartervip'
+param name string = 'sspectrum-demo-app'
 
 @description('Location for resources')
 param location string = 'centralus'  // Changed to match your successful deployment
 
 @description('App Service Plan SKU')
-@allowed(['F1','B1','P1v3','P2v3'])
-param sku string = 'B1'  // Changed back to B1 since it worked in portal
-
+@allowed(['F1','B1','P0v3','P1v3','P2v3'])
+param sku string = 'P0v3'  // Updated to P0v3
 
 @description('Node version for frontend')
-param nodeVersion string = '20'
+param nodeVersion string = '22'
 
 @description('Python version for backend')
-param pythonVersion string = '3.11'
+param pythonVersion string = '3.12'
+
 
 @description('Backend startup command')
-param backendStartupCommand string = 'python -m uvicorn app:app --host 0.0.0.0 --port 8000'
+param backendStartupCommand string = 'cd /home/site/wwwroot && gunicorn --bind 0.0.0.0:8000 --timeout 600 --workers 1 app:app'
 
-// Optional application settings (secure values can be added post-provision or via azd env set)
-@description('Model deployment name')
-param modelDeploymentName string = ''
+@description('Azure Tenant ID')
+param tenantId string = ''
 
-@description('Azure OpenAI endpoint')
-param azureOpenAiEndpoint string = ''
-
-@description('Language endpoint')
-param languageEndpoint string = ''
+@description('Data Agent URL')
+param dataAgentUrl string = ''
 
 @description('Application Insights sampling rate')
 param appInsightsSampling string = '5'
@@ -43,7 +39,7 @@ resource plan 'Microsoft.Web/serverfarms@2023-12-01' = {
   location: location
   sku: {
     name: sku
-    tier: sku == 'F1' ? 'Free' : sku == 'B1' ? 'Basic' : 'PremiumV3'  // Updated tier logic
+    tier: sku == 'F1' ? 'Free' : sku == 'B1' ? 'Basic' : 'PremiumV3'  // P0v3 uses PremiumV3 tier
   }
   kind: 'linux'
   properties: {
@@ -72,14 +68,23 @@ resource frontend 'Microsoft.Web/sites@2023-12-01' = {
     serverFarmId: plan.id
     siteConfig: {
       linuxFxVersion: 'NODE|${nodeVersion}-lts'
+      appCommandLine: 'npm install && npm run build && npm start'
       appSettings: [
         {
-          name: 'WEBSITES_PORT'
-          value: '3000'
+          name: 'PORT'  // Changed from WEBSITES_PORT
+          value: '8080'
         }
         {
           name: 'WEBSITE_NODE_DEFAULT_VERSION'
           value: '~${nodeVersion}'
+        }
+        {
+          name: 'SCM_DO_BUILD_DURING_DEPLOYMENT'
+          value: 'true'
+        }
+        {
+          name: 'WEBSITE_RUN_FROM_PACKAGE'
+          value: '0'
         }
         {
           name: 'BACKEND_URL'
@@ -102,9 +107,13 @@ resource frontend 'Microsoft.Web/sites@2023-12-01' = {
   identity: {
     type: 'SystemAssigned'
   }
+  tags: {
+    'azd-service-name': 'frontend'
+  }
 }
 
 // Backend Web App (FastAPI)
+
 resource backend 'Microsoft.Web/sites@2023-12-01' = {
   name: backendName
   location: location
@@ -131,16 +140,21 @@ resource backend 'Microsoft.Web/sites@2023-12-01' = {
           value: backendStartupCommand
         }
         {
-          name: 'MODEL_DEPLOYMENT_NAME'
-          value: modelDeploymentName
+          name: 'TENANT_ID'
+          value: tenantId
         }
         {
-          name: 'AZURE_OPENAI_ENDPOINT'
-          value: azureOpenAiEndpoint
+          name: 'DATA_AGENT_URL'
+          value: dataAgentUrl
+        }
+        // Add these for better deployment
+        {
+          name: 'WEBSITE_RUN_FROM_PACKAGE'
+          value: '0'
         }
         {
-          name: 'LANGUAGE_ENDPOINT'
-          value: languageEndpoint
+          name: 'ENABLE_ORYX_BUILD'
+          value: 'true'
         }
         {
           name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
@@ -154,6 +168,9 @@ resource backend 'Microsoft.Web/sites@2023-12-01' = {
   }
   identity: {
     type: 'SystemAssigned'
+  }
+  tags: {
+    'azd-service-name': 'api'  // Add this tag
   }
 }
 

@@ -1,4 +1,4 @@
-name: spectrum-fabric-agent
+name: spectrum-demo
 metadata:
   template: appservice-multi
 infra:
@@ -6,21 +6,13 @@ infra:
   path: infra
   module: main
   parameters:
-    modelDeploymentName: ${MODEL_DEPLOYMENT_NAME}
-    azureOpenAiEndpoint: ${AZURE_OPENAI_ENDPOINT}
-    languageEndpoint: ${LANGUAGE_ENDPOINT}
+    tenantId: ${AZURE_TENANT_ID}
+    dataAgentUrl: ${DATA_AGENT_URL}
 services:
   frontend:
     project: .
     language: js
     host: appservice
-    hooks:
-      predeploy:
-        windows:
-          shell: pwsh
-          run: |
-            npm install
-            npm run build
   api:
     project: api
     language: python

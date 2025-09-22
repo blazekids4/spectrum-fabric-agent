@@ -15,10 +15,10 @@ param(
     [string]$BackendAppName,
     
     [Parameter(Mandatory=$false)]
-    [string]$Location = "eastus"
+    [string]$Location = "centralus"
 )
 
-Write-Host "Deploying Charter VIP to Azure Web Apps..." -ForegroundColor Green
+Write-Host "Deploying Spectrum Demo to Azure Web Apps..." -ForegroundColor Green
 
 # Login to Azure (if not already logged in)
 Write-Host "Checking Azure login status..." -ForegroundColor Yellow
