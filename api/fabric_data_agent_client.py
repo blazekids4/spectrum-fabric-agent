@@ -3,9 +3,13 @@ import uuid
 import json
 import os
 import warnings
-from typing import Optional
-from azure.identity import InteractiveBrowserCredential
+import logging
+from typing import Optional, Dict, Any
+from azure.identity import DefaultAzureCredential, InteractiveBrowserCredential
 from openai import OpenAI
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
 
 # Suppress OpenAI Assistants API deprecation warnings
 # (Fabric Data Agents don't support the newer Responses API yet)
@@ -59,40 +63,33 @@ class FabricDataAgentClient:
         
         self._authenticate()
     
-    # def _authenticate(self):
-    #     """
-    #     Perform interactive browser authentication and get initial token.
-    #     """
-    #     try:
-    #         print("\n🔐 Starting authentication...")
-    #         print("A browser window will open for you to sign in to your Microsoft account.")
-            
-    #         # Create credential for interactive authentication
-    #         self.credential = InteractiveBrowserCredential(
-    #             tenant_id=self.tenant_id,
-    #             # Optional: specify redirect_uri if needed
-    #             # redirect_uri="http://localhost:8400"
-    #         )
-            
-    #         # Get initial token
-    #         self._refresh_token()
-            
-    #         print("✅ Authentication successful!")
-            
-    #     except Exception as e:
-    #         print(f"❌ Authentication failed: {e}")
-    #         raise
-    
     def _authenticate(self):
         """
-        Perform authentication - updated for Azure Web Apps.
+        Perform authentication based on the environment.
+        - Uses InteractiveBrowserCredential for local development
+        - Uses DefaultAzureCredential for Azure deployment
         """
         try:
             print("\n🔐 Starting authentication...")
             
-            # Use DefaultAzureCredential for Azure Web Apps
-            from azure.identity import DefaultAzureCredential
-            self.credential = DefaultAzureCredential()
+            # Check if we're running in Azure
+            is_azure_environment = os.environ.get("WEBSITE_SITE_NAME") is not None or \
+                                  os.environ.get("FUNCTIONS_WORKER_RUNTIME") is not None or \
+                                  os.environ.get("AZURE_FUNCTIONS_ENVIRONMENT") is not None
+            
+            if is_azure_environment:
+                print("Detected Azure environment, using DefaultAzureCredential...")
+                self.credential = DefaultAzureCredential()
+            else:
+                print("Local development detected, using InteractiveBrowserCredential...")
+                print("A browser window will open for you to sign in to your Microsoft account.")
+                
+                # Create credential for interactive authentication
+                self.credential = InteractiveBrowserCredential(
+                    tenant_id=self.tenant_id,
+                    # Optional: specify redirect_uri if needed
+                    # redirect_uri="http://localhost:8400"
+                )
             
             # Get initial token
             self._refresh_token()
@@ -102,6 +99,26 @@ class FabricDataAgentClient:
         except Exception as e:
             print(f"❌ Authentication failed: {e}")
             raise
+    
+    # def _authenticate(self):
+    #     """
+    #     Perform authentication - updated for Azure Web Apps.
+    #     """
+    #     try:
+    #         print("\n🔐 Starting authentication...")
+            
+    #         # Use DefaultAzureCredential for Azure Web Apps
+    #         from azure.identity import DefaultAzureCredential
+    #         self.credential = DefaultAzureCredential()
+            
+    #         # Get initial token
+    #         self._refresh_token()
+            
+    #         print("✅ Authentication successful!")
+            
+    #     except Exception as e:
+    #         print(f"❌ Authentication failed: {e}")
+    #         raise
     
     def _refresh_token(self):
         """

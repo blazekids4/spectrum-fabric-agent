@@ -9,10 +9,11 @@
   "scripts": {
     "backend-dev": "cd api && python app.py",
     "next-dev": "next dev",
-    "dev": "concurrently \"pnpm run next-dev\" \"pnpm run backend-dev\"",
+    "dev": "concurrently \"npm run next-dev\" \"npm run backend-dev\"",
     "build": "next build",
     "start": "next start -p ${PORT:-3000}",
     "start:azure": "node server.js",
+    "deploy:swa": "swa deploy .next --api-location api",
     "lint": "next lint"
   },
   "dependencies": {

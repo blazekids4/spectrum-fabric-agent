@@ -1,196 +1,252 @@
-# Spectrum Fabric Agent
+# Spectrum Fabric Data Agent: Customer Deployment Guide
 
-A Next.js and FastAPI application that provides a chat interface to interact with Microsoft Fabric Data Agents. This application enables users to query and analyze data through a conversational interface powered by Azure AI.
+This guide provides step-by-step instructions for deploying the Spectrum Fabric Data Agent application in your Azure tenant. The application consists of two main components:
 
-## Table of Contents
-
-- [Overview](#overview)
-- [Architecture](#architecture)
-- [Prerequisites](#prerequisites)
-- [Local Development Setup](#local-development-setup)
-- [Deployment Options](#deployment-options)
-  - [Azure Deployment](#azure-deployment)
-  - [Vercel Deployment](#vercel-deployment)
-- [Environment Variables](#environment-variables)
-- [Project Structure](#project-structure)
-- [Contributing](#contributing)
-- [License](#license)
-
-## Overview
-
-Spectrum Fabric Agent is a web application that provides a chat interface for interacting with Microsoft Fabric data. It uses a FastAPI backend to communicate with Fabric Data Agents and a Next.js frontend for the user interface. The application supports multi-turn conversations and can be deployed to Azure App Service or Vercel.
-
-## Architecture
-
-- **Frontend**: Next.js application with TypeScript and Tailwind CSS
-- **Backend**: FastAPI Python application
-- **Infrastructure**: Bicep templates for Azure deployment
+1. A Next.js frontend deployed as an Azure Static Web App
+2. A Python API backend deployed as an Azure Function App
 
 ## Prerequisites
 
-- Node.js 22.x or later
-- npm 10.x or later (or pnpm)
-- Python 3.12 or later
-- Microsoft Azure subscription (for Azure deployment)
-- Microsoft Fabric workspace with Data Agent configured
-- Vercel account (for Vercel deployment)
+Before you begin, ensure you have the following:
 
-## Local Development Setup
+- **Azure subscription** with permissions to create resources
+- **Microsoft Fabric workspace** with appropriate access
+- **Azure CLI** installed (version 2.40.0 or later)
+- **Node.js** (version 22.x or later)
+- **npm** (version 10.x or later)
+- **Python** (version 3.11)
+- **PowerShell** (version 7.x recommended)
 
-1. **Clone the repository**
+## Step 1: Clone the Repository
 
-   ```bash
-   git clone https://github.com/yourusername/spectrum-fabric-agent.git
-   cd spectrum-fabric-agent
-   ```
-
-2. **Set up environment variables**
-
-   Create a `.env` file in the root directory with the following variables:
-
-   ```env
-   TENANT_ID=your-azure-tenant-id
-   DATA_AGENT_URL=your-fabric-data-agent-url
-   ```
-
-   And create a `.env` file in the `api` directory with the same variables:
-
-   ```env
-   TENANT_ID=your-azure-tenant-id
-   DATA_AGENT_URL=your-fabric-data-agent-url
-   ```
-
-3. **Install frontend dependencies**
-
-   ```bash
-   npm install
-   # or
-   pnpm install
-   ```
-
-4. **Install backend dependencies**
-
-   ```bash
-   cd api
-   pip install -r requirements.txt
-   cd ..
-   ```
-
-5. **Run the application locally**
-
-   ```bash
-   npm run dev
-   # or
-   pnpm dev
-   ```
-
-   This will start both the Next.js frontend and FastAPI backend in development mode. The application will be available at [http://localhost:3000](http://localhost:3000).
-
-## Deployment Options
-
-### Azure Deployment
-
-This project includes Bicep templates for deploying to Azure App Service.
-
-1. **Log in to Azure**
-
-   ```bash
-   az login
-   ```
-
-2. **Set your subscription**
-
-   ```bash
-   az account set --subscription <your-subscription-id>
-   ```
-
-3. **Deploy using the Azure Developer CLI (azd)**
-
-   ```bash
-   azd auth login
-   azd init
-   azd env set AZURE_TENANT_ID <your-tenant-id>
-   azd env set DATA_AGENT_URL <your-data-agent-url>
-   azd up
-   ```
-
-   Alternatively, you can use the included PowerShell script:
-
-   ```powershell
-   .\deploy-to-azure.ps1 -resourceGroupName <your-resource-group> -location <azure-region>
-   ```
-
-4. **Manual deployment**
-
-   You can also deploy the Bicep template manually:
-
-   ```bash
-   az group create --name <your-resource-group> --location <azure-region>
-   az deployment group create --resource-group <your-resource-group> --template-file infra/main.bicep --parameters tenantId=<your-tenant-id> dataAgentUrl=<your-data-agent-url>
-   ```
-
-### Vercel Deployment
-
-1. **Install Vercel CLI**
-
-   ```bash
-   npm install -g vercel
-   ```
-
-2. **Deploy the frontend to Vercel**
-
-   ```bash
-   vercel
-   ```
-
-3. **Configure environment variables in Vercel**
-
-   Add the following environment variables in your Vercel project settings:
-
-   - `TENANT_ID`
-   - `DATA_AGENT_URL`
-   - `API_URL` (URL to your deployed API endpoint)
-
-4. **Deploy the backend separately**
-
-   For the backend, you'll need to deploy the FastAPI application separately. This can be done using Azure App Service or another Python hosting service.
-
-   If using Azure App Service, follow these steps:
-
-   ```bash
-   cd api
-   az webapp up --name <your-api-app-name> --resource-group <your-resource-group> --sku B1 --runtime "PYTHON:3.12"
-   ```
-
-   Then update the `API_URL` in your Vercel environment variables to point to this deployed backend.
-
-## Environment Variables
-
-| Name | Description | Required |
-|------|-------------|----------|
-| `TENANT_ID` | Azure Tenant ID | Yes |
-| `DATA_AGENT_URL` | URL for the Fabric Data Agent | Yes |
-| `PORT` | Port to run the Next.js server on (default: 3000) | No |
-
-## Project Structure
-
-```text
-/
-├── api/                  # FastAPI backend
-│   ├── app.py            # Main FastAPI application
-│   ├── fabric_agent_service.py  # Service for Fabric Data Agent interaction
-│   └── requirements.txt  # Python dependencies
-├── app/                  # Next.js pages and routes
-├── components/           # React components
-├── infra/               # Azure Bicep templates
-├── public/              # Static assets
-└── ...
+```powershell
+git clone https://github.com/blazekids4/spectrum-fabric-agent.git
+cd spectrum-fabric-agent
 ```
 
-## Contributing
+## Step 2: Configure Environment Variables
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+1. Create your environment configuration file by copying the sample:
 
-## License
+```powershell
+Copy-Item env.json.sample env.json
+```
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+2. Edit the `env.json` file with your Microsoft Fabric details:
+
+```json
+{
+  "TENANT_ID": "your-azure-tenant-id",
+  "DATA_AGENT_URL": "your-fabric-data-agent-url",
+  "WEBSITES_PORT": "8000"
+}
+```
+
+- `TENANT_ID`: Your Azure tenant ID (can be found in Azure Portal → Azure Active Directory → Properties)
+- `DATA_AGENT_URL`: The URL to your Microsoft Fabric Data Agent
+- `WEBSITES_PORT`: Port for the Function App (keep as 8000)
+
+## Step 3: Install Dependencies
+
+Install the frontend dependencies:
+
+```powershell
+npm install
+```
+
+## Step 4: Deploy the Application
+
+The deployment process involves three main steps, all of which are automated through PowerShell scripts:
+
+### 4.1. Create Azure Resources
+
+This script will create all necessary Azure resources:
+
+```powershell
+./deploy_swa.ps1 -ResourceGroup "your-resource-group-name" -StaticWebAppName "your-app-name" -FunctionAppName "your-app-name-functionapp" -Location "your-preferred-region"
+```
+
+Replace the parameters with your preferred values:
+- `ResourceGroup`: A new or existing resource group
+- `StaticWebAppName`: Name for your Static Web App (lowercase, no spaces)
+- `FunctionAppName`: Name for your Function App (lowercase, no spaces)
+- `Location`: Azure region (e.g., "centralus", "eastus", "westeurope")
+
+This script will:
+- Create or use an existing Resource Group
+- Create an Azure Static Web App
+- Create a Storage Account for the Function App
+- Create an App Service Plan (B1 tier)
+- Create an Azure Function App with Python 3.11 runtime
+- Enable system-assigned managed identity for the Function App
+- Configure environment variables from env.json
+- Set up proper CORS between the Function App and Static Web App
+
+### 4.2. Deploy the Frontend
+
+Deploy the Next.js frontend to Azure Static Web Apps:
+
+```powershell
+./deploy-frontend-swa.ps1 -ResourceGroup "your-resource-group-name" -StaticWebAppName "your-app-name"
+```
+
+This script will:
+- Build the Next.js application
+- Create static exports for Azure Static Web Apps
+- Deploy the built files to your Static Web App
+
+### 4.3. Deploy the API Backend
+
+Deploy the Python API to Azure Functions:
+
+```powershell
+./deploy-api-function.ps1 -ResourceGroup "your-resource-group-name" -FunctionAppName "your-app-name-functionapp"
+```
+
+This script will:
+- Package your Python API code
+- Deploy it to your Function App
+- Configure the necessary environment variables
+
+## Step 5: Configure Managed Identity Permissions
+
+The Function App uses a system-assigned managed identity to securely access Microsoft Fabric resources. You need to grant this identity appropriate permissions:
+
+1. Get the managed identity principal ID:
+
+```powershell
+az functionapp identity show --name "your-app-name-functionapp" --resource-group "your-resource-group-name" --query "principalId" -o tsv
+```
+
+2. Use this principal ID to grant access in your Microsoft Fabric workspace:
+   - Navigate to your Microsoft Fabric workspace
+   - Go to "Access control" or "Settings" → "Access control"
+   - Add a new role assignment
+   - Search for the principal ID you retrieved
+   - Assign appropriate roles (such as "Reader" or specific data access roles)
+
+## Step 6: Verify Deployment
+
+### Function App Verification
+
+1. Check if your Function App is running:
+
+```powershell
+az functionapp show --name "your-app-name-functionapp" --resource-group "your-resource-group-name" --query "{hostname:defaultHostName, state:state}" -o json
+```
+
+The state should be "Running".
+
+### Static Web App Verification
+
+1. Get your Static Web App URL:
+
+```powershell
+az staticwebapp environment list --name "your-app-name" --resource-group "your-resource-group-name" --query "[?status=='Ready'].hostname" -o tsv
+```
+
+2. Open this URL in a browser to access your application.
+
+## Troubleshooting
+
+### 1. Static Web App Shows Default Welcome Page
+
+If you see "Congratulations on your new site!" instead of your application:
+
+```powershell
+# Re-deploy with explicit API configuration
+$token = az staticwebapp secrets list --name "your-app-name" --resource-group "your-resource-group-name" --query "properties.apiKey" -o tsv
+npx @azure/static-web-apps-cli deploy out --api-language python --api-version 3.11 --api-location ./api --deployment-token $token
+```
+
+### 2. API Connection Issues
+
+If the frontend loads but can't connect to the API:
+
+1. Verify CORS settings:
+
+```powershell
+az functionapp cors show --name "your-app-name-functionapp" --resource-group "your-resource-group-name"
+```
+
+It should include your Static Web App domain in allowedOrigins.
+
+2. Check that the API URL is correctly set:
+
+```powershell
+az staticwebapp appsettings list --name "your-app-name" --resource-group "your-resource-group-name"
+```
+
+It should include NEXT_PUBLIC_API_URL pointing to your Function App.
+
+### 3. Function App Deployment Issues
+
+If the Function App deployment fails:
+
+```powershell
+az functionapp deployment source show --name "your-app-name-functionapp" --resource-group "your-resource-group-name"
+```
+
+Check for error messages and ensure Python dependencies are compatible with Azure Functions.
+
+### 4. Authentication Issues with Microsoft Fabric
+
+If the application can't authenticate to Microsoft Fabric:
+
+1. Ensure the TENANT_ID in env.json matches your Azure tenant
+2. Verify the managed identity has been granted appropriate permissions in Microsoft Fabric
+3. Check Function App logs for authentication errors:
+
+```powershell
+az functionapp logs tail --name "your-app-name-functionapp" --resource-group "your-resource-group-name"
+```
+
+## Advanced Configuration
+
+### Custom Domain
+
+To add a custom domain to your Static Web App:
+
+1. Navigate to your Static Web App in the Azure Portal
+2. Go to "Custom domains"
+3. Follow the wizard to add and validate your domain
+
+### Environment Variables
+
+To add or modify environment variables:
+
+```powershell
+az functionapp config appsettings set --name "your-app-name-functionapp" --resource-group "your-resource-group-name" --settings "KEY=VALUE"
+```
+
+For frontend environment variables:
+
+```powershell
+az staticwebapp appsettings set --name "your-app-name" --resource-group "your-resource-group-name" --setting-names "KEY=VALUE"
+```
+
+### Scaling
+
+The default deployment uses a B1 App Service Plan. To scale up:
+
+```powershell
+az appservice plan update --name "your-app-name-functionapp-plan" --resource-group "your-resource-group-name" --sku S1
+```
+
+## Security Considerations
+
+- All API communications use HTTPS
+- Authentication uses Azure AD through your tenant
+- Sensitive configuration is stored in environment variables
+- The Function App uses managed identity for secure access to Microsoft Fabric
+- Static Web App restricts allowedIpRanges to AzureCloud by default
+
+## Support and Maintenance
+
+For additional support or to report issues:
+- Create an issue on GitHub
+- Contact the repository maintainers
+
+---
+
+This deployment guide was created to help you successfully deploy the Spectrum Fabric Data Agent in your environment. If you encounter any issues not covered in this guide, please refer to the Azure documentation or contact the repository maintainers.

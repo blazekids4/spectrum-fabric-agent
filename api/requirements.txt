@@ -16,3 +16,6 @@ pydantic
 python-multipart
 aiofiles
 httpx
+azure-functions
+pytest
+pytest-asyncio

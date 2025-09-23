@@ -8,6 +8,10 @@ and the Fabric Data Agent backend services.
 """
 import os
 import sys
+import json
+import logging
+from pathlib import Path
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -15,12 +19,46 @@ from pydantic import BaseModel
 from typing import Optional, Dict, Any, List
 import uuid
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import asyncio
+
+# Load environment variables from .env file
+load_dotenv()
+
+# Try to load environment variables from parent directory's env.json file
+parent_env_path = Path(__file__).parent.parent / 'env.json'
+if parent_env_path.exists():
+    try:
+        with open(parent_env_path, 'r') as f:
+            env_vars = json.load(f)
+            for key, value in env_vars.items():
+                if key not in os.environ:
+                    os.environ[key] = value
+    except Exception as e:
+        print(f"Error loading env.json: {e}")
 from contextlib import asynccontextmanager
 import json
 
+# Configure logging early
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
 
+logger = logging.getLogger(__name__)
+
+# Add at the very beginning of the file
+logger.info("Starting Spectrum API application...")
+logger.info(f"Python version: {sys.version}")
+logger.info(f"Working directory: {os.getcwd()}")
+logger.info("Environment variables:")
+for key in ['WEBSITES_PORT', 'TENANT_ID', 'DATA_AGENT_URL', 'PORT']:
+    value = os.environ.get(key, 'NOT SET')
+    if key in ['TENANT_ID', 'DATA_AGENT_URL'] and value != 'NOT SET':
+        value = value[:8] + '...' if len(value) > 8 else value
+    logger.info(f"  {key}: {value}")
+    
 # Set UTF-8 encoding for Windows
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding='utf-8')
@@ -59,6 +97,15 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# Helper function to replace deprecated utc_now()
+def utc_now():
+    """Return a timezone-aware UTC datetime object."""
+    return datetime.now(timezone.utc)
+
+def utc_now_iso():
+    """Return an ISO-formatted string of the current UTC time."""
+    return utc_now().isoformat()
 
 # Global variables for service management
 fabric_client: Optional[FabricDataAgentClient] = None
@@ -115,7 +162,9 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",
         "https://*.vercel.app",
-        "https://*.azurewebsites.net",  # Add Azure Web Apps domain
+        "https://*.azurewebsites.net",  # Azure Web Apps domain
+        "https://*.azurestaticapps.net", # Azure Static Web Apps domain
+        "https://*.staticapp.auth.core.windows.net", # Azure Static Web Apps auth domain
         os.getenv("FRONTEND_URL", "https://charter-vip.vercel.app")
     ],
     allow_credentials=True,
@@ -200,7 +249,7 @@ def get_or_create_session(session_id: Optional[str] = None) -> str:
     if session_id not in sessions:
         sessions[session_id] = {
             "history": [],
-            "created_at": datetime.utcnow().isoformat(),
+            "created_at": utc_now_iso(),
             "metadata": {},
             "analysis_results": {}
         }
@@ -221,9 +270,28 @@ def is_cache_valid(cache_entry: Dict[str, Any], ttl: int = CACHE_TTL) -> bool:
     if isinstance(cached_time, str):
         cached_time = datetime.fromisoformat(cached_time)
     
-    return (datetime.utcnow() - cached_time).total_seconds() < ttl
+    return (utc_now() - cached_time).total_seconds() < ttl
 
 # API Routes
+
+# Add a simple root endpoint
+@app.route('/')
+def index():
+    """Root endpoint for basic health check."""
+    return JSONResponse(content={
+        "status": "running",
+        "service": "spectrum-api",
+        "version": "1.0.0"
+    })
+
+# Add health endpoint
+@app.route('/health')
+def health():
+    """Health check endpoint."""
+    return JSONResponse(content={
+        "status": "healthy",
+        "timestamp": utc_now_iso()
+    })
 
 @app.get("/")
 async def root():
@@ -269,7 +337,7 @@ async def chat(request: ChatRequest):
         sessions[session_id]["history"].append({
             "role": "user",
             "text": request.message,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": utc_now_iso()
         })
         
         # Determine which backend to use based on query
@@ -287,7 +355,7 @@ async def chat(request: ChatRequest):
         sessions[session_id]["history"].append({
             "role": "assistant",
             "text": response["reply"],
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": utc_now_iso(),
             "sources": response.get("sources", [])
         })
         
@@ -306,38 +374,64 @@ async def chat(request: ChatRequest):
 
 async def handle_fabric_query(query: str, session_id: str) -> Dict[str, Any]:
     """Handle query using Fabric Data Agent."""
-    fabric_client = await ensure_fabric_client()
-    
-    # Build context from session history
-    history_context = "\n".join([
-        f"{msg['role']}: {msg['text']}" 
-        for msg in sessions[session_id]["history"][-5:]  # Last 5 messages
-    ])
-    
-    prompt = f"""You are Charter's AI assistant with access to the company's data lakehouse.
-    
+    try:
+        # Check if we're using mock mode (with placeholder credentials)
+        tenant_id = os.environ.get('TENANT_ID', '')
+        data_agent_url = os.environ.get('DATA_AGENT_URL', '')
+        
+        use_mock = tenant_id in ['your-tenant-id', ''] or data_agent_url in ['your-data-agent-url', '']
+        
+        # Build context from session history
+        history_context = "\n".join([
+            f"{msg['role']}: {msg['text']}" 
+            for msg in sessions[session_id]["history"][-5:]  # Last 5 messages
+        ])
+        
+        prompt = f"""You are Charter's AI assistant with access to the company's data lakehouse.
+        
 Previous conversation:
 {history_context}
 
 Current question: {query}
 
 Please provide a helpful, accurate response based on the data available."""
-    
-    # Get response from Fabric agent
-    reply = fabric_client.ask(prompt)
-    
-    # For detailed queries, also get run details
-    if "sql" in query.lower() or "query" in query.lower():
-        details = fabric_client.get_run_details(query)
-        if "sql_queries" in details:
+        
+        if use_mock:
+            logger.info("Using mock response mode (development environment)")
+            # Provide a mock response for development
+            reply = f"This is a mock response since real credentials aren't configured. Your query was: '{query}'\n\n"
+            reply += "To use real data, please update your .env file with actual TENANT_ID and DATA_AGENT_URL values."
             return {
                 "reply": reply,
-                "metadata": {
-                    "sql_queries": details.get("sql_queries", []),
-                    "data_preview": details.get("sql_data_previews", [])
-                },
-                "sources": ["Fabric Lakehouse"]
+                "metadata": {},
+                "sources": ["Mock Data Source (Development Mode)"]
             }
+        
+        # Get the Fabric client
+        fabric_client = await ensure_fabric_client()
+        
+        # Get response from Fabric agent
+        reply = fabric_client.ask(prompt)
+        
+        # For detailed queries, also get run details
+        if "sql" in query.lower() or "query" in query.lower():
+            details = fabric_client.get_run_details(query)
+            if details and "sql_queries" in details:
+                return {
+                    "reply": reply,
+                    "metadata": {
+                        "sql_queries": details.get("sql_queries", []),
+                        "data_preview": details.get("sql_data_previews", [])
+                    },
+                    "sources": ["Fabric Lakehouse"]
+                }
+    except Exception as e:
+        logger.error(f"Error calling data agent: {str(e)}")
+        return {
+            "reply": f"I'm sorry, I encountered an error when trying to access the data: {str(e)}. Please check your connection and credentials.",
+            "metadata": {"error": str(e)},
+            "sources": ["Error"]
+        }
     
     return {
         "reply": reply,
@@ -385,7 +479,7 @@ async def fabric_direct_query(query: str):
         return {
             "query": query,
             "response": response,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": utc_now_iso()
         }
     except Exception as e:
         logger.error(f"Fabric query error: {str(e)}")
@@ -400,7 +494,7 @@ async def fabric_detailed_analysis(query: str):
         return {
             "query": query,
             "details": details,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": utc_now_iso()
         }
     except Exception as e:
         logger.error(f"Fabric analysis error: {str(e)}")
@@ -420,7 +514,7 @@ async def multi_agent_analysis(request: MultiAgentQueryRequest):
         return {
             "query": request.query,
             "result": result,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": utc_now_iso()
         }
     except Exception as e:
         logger.error(f"Multi-agent analysis error: {str(e)}")
@@ -448,12 +542,12 @@ async def analyze_competitor(competitor_name: str, request: CompetitorAnalysisRe
         response_data = {
             "competitor": competitor_name,
             "analysis": result,
-            "generated_at": datetime.utcnow().isoformat()
+            "generated_at": utc_now_iso()
         }
         
         analysis_cache[cache_key] = {
             "data": response_data,
-            "timestamp": datetime.utcnow()
+            "timestamp": utc_now()
         }
         
         return response_data
@@ -499,14 +593,14 @@ async def process_transcripts_background(job_id: str, transcript_batch, source_f
         analysis_cache[job_id] = {
             "status": "completed",
             "result": result,
-            "timestamp": datetime.utcnow()
+            "timestamp": utc_now()
         }
     except Exception as e:
         logger.error(f"Background transcript processing error: {str(e)}")
         analysis_cache[job_id] = {
             "status": "failed",
             "error": str(e),
-            "timestamp": datetime.utcnow()
+            "timestamp": utc_now()
         }
 
 # Combined insights endpoints (use both Fabric and Multi-Agent)
@@ -539,13 +633,13 @@ async def get_executive_summary():
         combined_summary = {
             "data_insights": fabric_summary,
             "competitive_insights": competitive_summary,
-            "generated_at": datetime.utcnow().isoformat()
+            "generated_at": utc_now_iso()
         }
         
         # Cache result
         analysis_cache[cache_key] = {
             "data": combined_summary,
-            "timestamp": datetime.utcnow()
+            "timestamp": utc_now()
         }
         
         return combined_summary
@@ -584,6 +678,11 @@ handler = app
 
 import uvicorn
     
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8000))
-    uvicorn.run("app:app", host="0.0.0.0", port=port)
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', os.environ.get('WEBSITES_PORT', 8000)))
+    logger.info(f"Starting FastAPI app on port {port}")
+    try:
+        uvicorn.run(app, host='0.0.0.0', port=port)
+    except Exception as e:
+        logger.error(f"Failed to start application: {e}", exc_info=True)
+        sys.exit(1)
