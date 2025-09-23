@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-const PYTHON_API_URL = process.env.PYTHON_API_URL || 'http://localhost:5328'
+// Try PYTHON_API_URL first, fall back to NEXT_PUBLIC_API_URL, then to localhost
+const PYTHON_API_URL = process.env.PYTHON_API_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5328'
 
 export async function GET(
   request: NextRequest,

@@ -12,13 +12,15 @@ Write-Host "Starting deployment of frontend to Azure Static Web App..." -Foregro
 $functionAppName = "$StaticWebAppName-functionapp"
 $functionAppUrl = az functionapp show --name $functionAppName --resource-group $ResourceGroup --query "defaultHostName" -o tsv
 if ($functionAppUrl) {
-    Write-Host "Setting NEXT_PUBLIC_API_URL to https://$functionAppUrl/api" -ForegroundColor Yellow
+    $apiUrl = "https://$functionAppUrl/api"
+    Write-Host "Setting API URL to $apiUrl" -ForegroundColor Yellow
     
-    # Set environment variable for the build
-    $env:NEXT_PUBLIC_API_URL = "https://$functionAppUrl/api"
+    # Set environment variables for the build
+    $env:NEXT_PUBLIC_API_URL = $apiUrl
+    $env:PYTHON_API_URL = $apiUrl
     
-    # Also update the Static Web App setting
-    az staticwebapp appsettings set --name $StaticWebAppName --resource-group $ResourceGroup --setting-names "NEXT_PUBLIC_API_URL=https://$functionAppUrl/api"
+    # Also update the Static Web App settings
+    az staticwebapp appsettings set --name $StaticWebAppName --resource-group $ResourceGroup --setting-names "NEXT_PUBLIC_API_URL=$apiUrl" "PYTHON_API_URL=$apiUrl"
 }
 
 # Build the frontend - with Next.js 13+ app router, the export is included in the build
