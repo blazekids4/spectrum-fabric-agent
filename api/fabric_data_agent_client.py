@@ -77,7 +77,10 @@ class FabricDataAgentClient:
                                   os.environ.get("FUNCTIONS_WORKER_RUNTIME") is not None or \
                                   os.environ.get("AZURE_FUNCTIONS_ENVIRONMENT") is not None
             
-            if is_azure_environment:
+            # Check if browser auth is forced for local development
+            force_browser_auth = os.environ.get("FORCE_BROWSER_AUTH", "false").lower() == "true"
+            
+            if is_azure_environment and not force_browser_auth:
                 print("Detected Azure environment, using DefaultAzureCredential...")
                 self.credential = DefaultAzureCredential()
             else:

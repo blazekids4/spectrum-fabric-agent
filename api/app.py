@@ -25,15 +25,31 @@ import asyncio
 # Load environment variables from .env file
 load_dotenv()
 
-# Try to load environment variables from parent directory's env.json file
+# Try to load environment variables from parent directory's env files
+# First try env.local.json (for local development), then fall back to env.json
+parent_local_env_path = Path(__file__).parent.parent / 'env.local.json'
 parent_env_path = Path(__file__).parent.parent / 'env.json'
-if parent_env_path.exists():
+
+# Try local env file first
+if parent_local_env_path.exists():
+    try:
+        with open(parent_local_env_path, 'r') as f:
+            env_vars = json.load(f)
+            for key, value in env_vars.items():
+                if key not in os.environ:
+                    os.environ[key] = value
+        print("Loaded environment from env.local.json")
+    except Exception as e:
+        print(f"Error loading env.local.json: {e}")
+# Fall back to regular env file
+elif parent_env_path.exists():
     try:
         with open(parent_env_path, 'r') as f:
             env_vars = json.load(f)
             for key, value in env_vars.items():
                 if key not in os.environ:
                     os.environ[key] = value
+        print("Loaded environment from env.json")
     except Exception as e:
         print(f"Error loading env.json: {e}")
 from contextlib import asynccontextmanager
