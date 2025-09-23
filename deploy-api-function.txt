@@ -1,0 +1,30 @@
+(venv) PS C:\Users\justinlyons\source\repos\spectrum-fabric-agent> ./deploy-api-function.ps1 -ResourceGroup $resourceGroup -FunctionAppName $functionAppName
+Starting deployment of Python API to Azure Function App...
+Creating deployment package...
+Deploying code to Function App (this may take a few minutes)...
+D:\a\_work\1\s\build_scripts\windows\artifacts\cli\Lib\site-packages\cryptography/hazmat/backends/openssl/backend.py:8: UserWarning: You are using cryptography on a 32-bit Python on a 64-bit Windows Operating System. Cryptography will be significantly faster if you switch to using a 64-bit Python.
+Getting scm site credentials for zip deployment
+Starting zip deployment. This operation can take a while to complete ...
+Deployment endpoint responded with status code 202
+{
+  "active": true,
+  "author": "N/A",
+  "author_email": "N/A",
+  "complete": true,
+  "deployer": "az_cli_functions",
+  "end_time": "2025-09-23T18:56:17.2699919Z",
+  "id": "05c4697d-4fbc-4403-846b-f833af516d79",
+  "is_readonly": true,
+  "is_temp": false,
+  "last_success_end_time": "2025-09-23T18:56:17.2699919Z",
+  "log_url": "https://my-fabric-agent-functionapp.scm.azurewebsites.net/api/deployments/05c4697d-4fbc-4403-846b-f833af516d79/log",
+  "message": "Created via a push deployment",
+  "progress": "",
+  "received_time": "2025-09-23T18:56:13.8472293Z",
+  "site_name": "my-fabric-agent-functionapp",
+  "start_time": "2025-09-23T18:56:15.2387665Z",
+  "status": 4,
+  "status_text": "",
+  "url": "https://my-fabric-agent-functionapp.scm.azurewebsites.net/api/deployments/05c4697d-4fbc-4403-846b-f833af516d79"
+}
+Function App deployment complete!

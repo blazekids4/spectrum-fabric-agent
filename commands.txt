@@ -1,0 +1,15 @@
+# Create a new resource group and deploy the infrastructure
+# Replace with your actual resource names
+$resourceGroup = "my-fabric-agent-rg"
+$staticWebAppName = "my-fabric-agent"
+$functionAppName = "my-fabric-agent-functionapp"
+$location = "centralus"
+
+# Deploy the infrastructure
+./deploy_swa.ps1 -ResourceGroup $resourceGroup -StaticWebAppName $staticWebAppName -FunctionAppName $functionAppName -Location $location
+
+# Deploy the Function App API
+./deploy-api-function.ps1 -ResourceGroup $resourceGroup -FunctionAppName $functionAppName
+
+# Deploy the Frontend
+./deploy-frontend-swa.ps1 -ResourceGroup $resourceGroup -StaticWebAppName $staticWebAppName
