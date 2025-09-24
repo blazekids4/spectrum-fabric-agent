@@ -4,26 +4,15 @@ import json
 import os
 import warnings
 import logging
-import typing as t
-from typing import Optional, Dict, Any, List
-from azure.identity import (
-    ManagedIdentityCredential, 
-    DefaultAzureCredential, 
-    InteractiveBrowserCredential,
-    AzureCliCredential,
-    ClientSecretCredential,
-    ChainedTokenCredential
-)
+from typing import Optional, Dict, Any
+from azure.identity import DefaultAzureCredential, InteractiveBrowserCredential
 from openai import OpenAI
-from openai._models import FinalRequestOptions
-from openai._types import Omit
-from openai._utils import is_given
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 
 # Suppress OpenAI Assistants API deprecation warnings
-# (Fabric Data Agents use the Assistants API model)
+# (Fabric Data Agents don't support the newer Responses API yet)
 warnings.filterwarnings(
     "ignore",
     category=DeprecationWarning,
@@ -37,238 +26,69 @@ try:
 except ImportError:
     pass
 
-# Try importing synapse.ml.mlflow for Fabric authentication
-try:
-    from synapse.ml.mlflow import get_mlflow_env_config
-    SYNAPSE_ML_AVAILABLE = True
-except ImportError:
-    SYNAPSE_ML_AVAILABLE = False
-
-
-class FabricOpenAI(OpenAI):
-    """
-    Custom OpenAI client for Microsoft Fabric Data Agents.
-    
-    This client automatically sets up authentication and headers required
-    for Fabric Data Agent API access.
-    """
-    
-    def __init__(
-        self,
-        api_key: str = "",
-        base_url: str = None,
-        api_version: str = "2024-05-01-preview",
-        token: str = None,
-        **kwargs: t.Any,
-    ) -> None:
-        """
-        Initialize the Fabric OpenAI client.
-        
-        Args:
-            api_key (str): Not used but required by OpenAI client
-            base_url (str): The base URL for the Fabric Data Agent
-            api_version (str): The Fabric API version to use
-            token (str): Bearer token for authorization
-            **kwargs: Additional arguments to pass to the OpenAI client
-        """
-        self.api_version = api_version
-        self.token = token
-        default_query = kwargs.pop("default_query", {})
-        default_query["api-version"] = self.api_version
-        
-        super().__init__(
-            api_key=api_key,
-            base_url=base_url,
-            default_query=default_query,
-            **kwargs,
-        )
-    
-    def _prepare_options(self, options: FinalRequestOptions) -> None:
-        """
-        Prepare request options by adding necessary headers.
-        
-        Args:
-            options (FinalRequestOptions): The request options to prepare
-        """
-        headers: dict[str, str | Omit] = (
-            {**options.headers} if is_given(options.headers) else {}
-        )
-        options.headers = headers
-        
-        # Add authorization header
-        if self.token:
-            headers["Authorization"] = f"Bearer {self.token}"
-            
-        # Add accept header if not present
-        if "Accept" not in headers:
-            headers["Accept"] = "application/json"
-            
-        # Add activity ID for tracing
-        if "ActivityId" not in headers:
-            correlation_id = str(uuid.uuid4())
-            headers["ActivityId"] = correlation_id
-
-        return super()._prepare_options(options)
-
 
 class FabricDataAgentClient:
     """
     Client for calling Microsoft Fabric Data Agents from external applications.
     
     This client handles:
-    - Managed Identity authentication for Azure deployments
-    - Service Principal authentication for local development
+    - Interactive browser authentication with Azure AD
     - Automatic token refresh
     - Bearer token management for API calls
     - Proper cleanup of resources
-    - Support for both direct API and Assistants API patterns
     """
     
-    def __init__(self, tenant_id: str = None, data_agent_url: str = None, 
-                 client_id: str = None, client_secret: str = None,
-                 use_managed_identity: bool = True, verify_url: bool = False,
-                 api_version: str = "2024-05-01-preview"):
+    def __init__(self, tenant_id: str, data_agent_url: str):
         """
         Initialize the Fabric Data Agent client.
         
         Args:
-            tenant_id (str, optional): Your Azure tenant ID. If None, reads from env var TENANT_ID
-            data_agent_url (str, optional): The published URL of your Fabric Data Agent. If None, reads from env var DATA_AGENT_URL
-            client_id (str, optional): Service Principal client ID for auth. If None, reads from env var CLIENT_ID
-            client_secret (str, optional): Service Principal client secret. If None, reads from env var CLIENT_SECRET
-            use_managed_identity (bool): Whether to use Managed Identity in Azure (default: True)
-            verify_url (bool): Whether to verify the Fabric Data Agent URL before using it (default: False)
-            api_version (str): The Fabric API version to use (default: 2024-05-01-preview)
+            tenant_id (str): Your Azure tenant ID
+            data_agent_url (str): The published URL of your Fabric Data Agent
         """
-        # Try to get values from environment if not provided
-        self.tenant_id = tenant_id or os.environ.get("TENANT_ID")
-        self.data_agent_url = data_agent_url or os.environ.get("DATA_AGENT_URL")
-        self.client_id = client_id or os.environ.get("CLIENT_ID") or os.environ.get("AZURE_CLIENT_ID")
-        self.client_secret = client_secret or os.environ.get("CLIENT_SECRET") or os.environ.get("AZURE_CLIENT_SECRET")
-        self.use_managed_identity = use_managed_identity
-        self.verify_url = verify_url
-        self.api_version = api_version
+        self.tenant_id = tenant_id
+        self.data_agent_url = data_agent_url
         self.credential = None
         self.token = None
-        self.client = None
-        
-        # Check for Fabric environment via SynapseML
-        self.is_fabric_environment = SYNAPSE_ML_AVAILABLE
-        self.mlflow_config = None
-        if self.is_fabric_environment:
-            try:
-                print("Detected Fabric environment, getting mlflow config...")
-                from synapse.ml.mlflow import get_mlflow_env_config
-                self.mlflow_config = get_mlflow_env_config()
-            except Exception as e:
-                print(f"Failed to get mlflow config: {e}")
-                self.is_fabric_environment = False
         
         # Validate inputs
-        if not self.is_fabric_environment:
-            # Only require tenant_id if not in Fabric environment
-            if not self.tenant_id:
-                raise ValueError("tenant_id is required (either as parameter or TENANT_ID env var)")
-                
-        if not self.data_agent_url:
-            raise ValueError("data_agent_url is required (either as parameter or DATA_AGENT_URL env var)")
+        if not tenant_id:
+            raise ValueError("tenant_id is required")
+        if not data_agent_url:
+            raise ValueError("data_agent_url is required")
         
         print(f"Initializing Fabric Data Agent Client...")
-        print(f"Data Agent URL: {self.data_agent_url}")
-        if self.tenant_id:
-            print(f"Tenant ID: {self.tenant_id}")
+        print(f"Tenant ID: {tenant_id}")
+        print(f"Data Agent URL: {data_agent_url}")
         
-        # Parse and validate the URL structure
-        try:
-            url_parts = self.data_agent_url.split("/")
-            if len(url_parts) < 8:
-                print("⚠️ Warning: URL structure may be incorrect - not enough path segments")
-            else:
-                self.base_url = "/".join(url_parts[:3])  # https://api.fabric.microsoft.com
-                self.version = url_parts[3]  # v1
-                self.workspace_id = url_parts[5]  # {workspace-id}
-                self.skill_id = url_parts[7]  # {skill-id}
-                print(f"Workspace ID: {self.workspace_id}")
-                print(f"AI Skill ID: {self.skill_id}")
-        except Exception as e:
-            print(f"⚠️ Warning: Could not parse URL structure: {e}")
-        
-        # Authenticate
         self._authenticate()
-        
-        # Verify the URL if requested
-        if self.verify_url:
-            self._verify_url()
     
     def _authenticate(self):
         """
-        Perform authentication using Fabric MLflow env in Fabric environment,
-        Managed Identity in Azure, or service principal for local development.
+        Perform authentication based on the environment.
+        - Uses InteractiveBrowserCredential for local development
+        - Uses DefaultAzureCredential for Azure deployment
         """
         try:
             print("\n🔐 Starting authentication...")
             
-            # Special handling for Fabric environment
-            if self.is_fabric_environment and self.mlflow_config:
-                print("Using Fabric MLflow environment for authentication...")
-                # In Fabric environment, we don't need to create a credential
-                # The token is already available in mlflow_config
-                self.token_value = self.mlflow_config.driver_aad_token
-                print("✅ Using token from Fabric environment")
-                return
-            
             # Check if we're running in Azure
-            is_azure_environment = any([
-                os.environ.get("WEBSITE_SITE_NAME") is not None,
-                os.environ.get("FUNCTIONS_WORKER_RUNTIME") is not None,
-                os.environ.get("AZURE_FUNCTIONS_ENVIRONMENT") is not None,
-                os.environ.get("IDENTITY_ENDPOINT") is not None,  # Managed Identity indicator
-                os.environ.get("MSI_ENDPOINT") is not None,  # Legacy Managed Identity indicator
-            ])
+            is_azure_environment = os.environ.get("WEBSITE_SITE_NAME") is not None or \
+                                  os.environ.get("FUNCTIONS_WORKER_RUNTIME") is not None or \
+                                  os.environ.get("AZURE_FUNCTIONS_ENVIRONMENT") is not None
             
-            # Check if we're forcing managed identity locally for testing
-            force_managed_identity_local = os.environ.get("FORCE_MANAGED_IDENTITY_LOCAL", "false").lower() == "true"
+            # Check if browser auth is forced for local development
+            force_browser_auth = os.environ.get("FORCE_BROWSER_AUTH", "false").lower() == "true"
             
-            if self.use_managed_identity and is_azure_environment:
-                print("Azure environment detected - using Managed Identity authentication...")
-                
-                # Try to get client ID from environment variable if specified
-                client_id = self.client_id or os.environ.get("AZURE_CLIENT_ID")
-                
-                if client_id:
-                    print(f"Using User-Assigned Managed Identity with Client ID: {client_id}")
-                    self.credential = ManagedIdentityCredential(client_id=client_id)
-                else:
-                    print("Using System-Assigned Managed Identity")
-                    self.credential = ManagedIdentityCredential()
-            
+            if is_azure_environment and not force_browser_auth:
+                print("Detected Azure environment, using DefaultAzureCredential...")
+                self.credential = DefaultAzureCredential()
             else:
-                # Local development or non-Azure environment
-                print("Local environment detected - using Service Principal authentication")
+                print("Local development detected, using InteractiveBrowserCredential...")
+                print("A browser window will open for you to sign in to your Microsoft account.")
                 
-                if self.client_id and self.client_secret:
-                    print(f"Using Service Principal authentication with Client ID: {self.client_id}")
-                    self.credential = ClientSecretCredential(
-                        tenant_id=self.tenant_id,
-                        client_id=self.client_id,
-                        client_secret=self.client_secret
-                    )
-                else:
-                    # Try fallback authentication methods
-                    print("No Service Principal credentials provided - trying fallback authentication methods...")
-                    
-                    # Create a chained credential with multiple options
-                    credentials = []
-                    
-                    # Try Azure CLI first (if user has run 'az login')
-                    print("Trying Azure CLI credential...")
-                    credentials.append(AzureCliCredential())
-                    
-                    # Then try DefaultAzureCredential
-                    print("Adding DefaultAzureCredential as fallback...")
-                    credentials.append(DefaultAzureCredential(exclude_interactive_browser_credential=False))
-                    
-                    self.credential = ChainedTokenCredential(*credentials)
+                self.credential = DefaultAzureCredential()
+
             
             # Get initial token
             self._refresh_token()
@@ -277,31 +97,37 @@ class FabricDataAgentClient:
             
         except Exception as e:
             print(f"❌ Authentication failed: {e}")
-            print("\nTroubleshooting tips:")
-            print("- For local development: ensure CLIENT_ID and CLIENT_SECRET environment variables are set")
-            print("- For Azure deployment: ensure Managed Identity is enabled")
-            print("- If using Azure CLI: run 'az login' first")
-            print("- Check that the credentials have access to Microsoft Fabric resources")
-            print("- If running in Fabric, ensure synapseml is installed: %pip install synapseml")
             raise
-
+    
+    # def _authenticate(self):
+    #     """
+    #     Perform authentication - updated for Azure Web Apps.
+    #     """
+    #     try:
+    #         print("\n🔐 Starting authentication...")
+            
+    #         # Use DefaultAzureCredential for Azure Web Apps
+    #         from azure.identity import DefaultAzureCredential
+    #         self.credential = DefaultAzureCredential()
+            
+    #         # Get initial token
+    #         self._refresh_token()
+            
+    #         print("✅ Authentication successful!")
+            
+    #     except Exception as e:
+    #         print(f"❌ Authentication failed: {e}")
+    #         raise
+    
     def _refresh_token(self):
         """
         Refresh the authentication token.
         """
         try:
             print("🔄 Refreshing authentication token...")
-            
-            # If in Fabric environment, token is already available
-            if self.is_fabric_environment and hasattr(self, 'token_value'):
-                # Token is already set, no need to refresh
-                return
-                
             if self.credential is None:
                 raise ValueError("No credential available")
-                
             self.token = self.credential.get_token("https://api.fabric.microsoft.com/.default")
-            self.token_value = self.token.token
             print(f"✅ Token obtained, expires at: {time.ctime(self.token.expires_on)}")
             
         except Exception as e:
@@ -315,381 +141,885 @@ class FabricDataAgentClient:
         Returns:
             OpenAI: Configured OpenAI client
         """
-        # Check if we already created a client
-        if self.client:
-            # Check if token needs refresh (if we have an expiry time)
-            if hasattr(self, 'token') and self.token and self.token.expires_on <= (time.time() + 300):
-                self._refresh_token()
-            return self.client
-            
-        # In Fabric environment, use our FabricOpenAI client
-        if self.is_fabric_environment and hasattr(self, 'token_value'):
-            self.client = FabricOpenAI(
-                base_url=self.data_agent_url,
-                token=self.token_value,
-                api_version=self.api_version
-            )
-            return self.client
-            
-        # Otherwise use standard approach
-        # Check if token needs refresh (if we have an expiry time)
-        if hasattr(self, 'token') and self.token and self.token.expires_on <= (time.time() + 300):
+        # Check if token needs refresh (refresh 5 minutes before expiry)
+        if self.token and self.token.expires_on <= (time.time() + 300):
             self._refresh_token()
-            
-        if not hasattr(self, 'token_value') or not self.token_value:
-            raise ValueError("No authentication token available")
-            
-        # Create custom OpenAI client with token
-        self.client = FabricOpenAI(
-            base_url=self.data_agent_url,
-            token=self.token_value,
-            api_version=self.api_version
-        )
-        return self.client
         
-    def _verify_url(self):
-        """
-        Verify that the Fabric Data Agent URL is accessible.
-        """
-        if not hasattr(self, 'base_url') or not hasattr(self, 'workspace_id') or not hasattr(self, 'skill_id'):
-            print("⚠️ Could not verify URL - URL structure parsing failed")
-            return False
-            
-        try:
-            print("\n🔍 Verifying Fabric Data Agent URL...")
-            
-            # Ensure we have a token
-            if not self.token:
-                self._refresh_token()
-                
-            import requests
-            headers = {
+        if not self.token:
+            raise ValueError("No valid authentication token available")
+        
+        return OpenAI(
+            api_key="",  # Not used - we use Bearer token
+            base_url=self.data_agent_url,
+            default_query={"api-version": "2024-05-01-preview"},
+            default_headers={
                 "Authorization": f"Bearer {self.token.token}",
-                "Content-Type": "application/json"
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+                "ActivityId": str(uuid.uuid4())
             }
-            
-            # Test the workspace endpoint
-            workspace_url = f"{self.base_url}/{self.version}/workspaces/{self.workspace_id}"
-            print(f"Testing workspace URL: {workspace_url}")
-            
-            response = requests.get(workspace_url, headers=headers)
-            if response.status_code == 200:
-                print("✅ Workspace exists and is accessible")
-                workspace_data = response.json()
-                if 'displayName' in workspace_data:
-                    print(f"Workspace name: {workspace_data['displayName']}")
-            else:
-                print(f"❌ Could not access workspace: Status {response.status_code}")
-                print(f"Response: {response.text}")
-                return False
-                
-            # Try different API patterns to find the working one
-            api_patterns = [
-                # Standard Data Agent pattern
-                f"{self.base_url}/{self.version}/workspaces/{self.workspace_id}/dataagents/{self.skill_id}",
-                # Items pattern
-                f"{self.base_url}/{self.version}/workspaces/{self.workspace_id}/items/{self.skill_id}",
-                # Old aiskills pattern
-                f"{self.base_url}/{self.version}/workspaces/{self.workspace_id}/aiskills/{self.skill_id}/aiassistant/openai",
-                # New dataagents pattern
-                f"{self.base_url}/{self.version}/workspaces/{self.workspace_id}/dataagents/{self.skill_id}/openai",
-                # Hybrid pattern
-                f"{self.base_url}/{self.version}/workspaces/{self.workspace_id}/dataagents/{self.skill_id}/aiassistant/openai"
-            ]
-            
-            working_urls = []
-            for pattern in api_patterns:
-                print(f"\nTesting API URL: {pattern}")
-                try:
-                    response = requests.get(pattern, headers=headers)
-                    print(f"Status: {response.status_code}")
-                    if response.status_code == 200:
-                        print("✅ Accessible!")
-                        working_urls.append(pattern)
-                        print(f"Response: {response.text[:100]}...")
-                    else:
-                        print(f"❌ Not accessible: {response.text[:100]}...")
-                except Exception as e:
-                    print(f"Error: {e}")
-            
-            if working_urls:
-                print("\n✅ Found working URLs:")
-                for url in working_urls:
-                    print(f"- {url}")
-                
-                # Find the one that matches our data_agent_url pattern or is closest
-                self.working_url = None
-                for url in working_urls:
-                    if url.endswith("/openai"):
-                        self.working_url = url
-                        break
-                
-                if not self.working_url and working_urls:
-                    self.working_url = working_urls[0]
-                    
-                if self.working_url:
-                    print(f"\n✅ Selected working URL: {self.working_url}")
-                    if self.working_url != self.data_agent_url:
-                        print(f"⚠️ This differs from your configured URL: {self.data_agent_url}")
-                        print("Consider updating your DATA_AGENT_URL environment variable.")
-                    return True
-            
-            print("\n❌ No working OpenAI API endpoints found")
-            print("\nTroubleshooting tips:")
-            print("1. Verify the Data Agent is published in Microsoft Fabric portal")
-            print("2. Check the 'Published URL' in the Fabric portal for the correct format")
-            print("3. Ensure your account has permissions to access the Data Agent API")
-            print("4. The Data Agent may need to be reconfigured or republished")
-            print("5. Contact your Microsoft Fabric administrator for assistance")
-            
-            return False
-                
-        except Exception as e:
-            print(f"❌ URL verification failed: {e}")
-            return False
+        )
     
-    def get_completion_using_assistants_api(self, prompt: str, model: str = "not used", **kwargs) -> Dict[str, Any]:
+    def ask(self, question: str, timeout: int = 120) -> str:
         """
-        Get a completion from the Fabric Data Agent using Assistants API pattern.
-        This is the recommended way to interact with Fabric Data Agents based on Microsoft's examples.
+        Ask a question to the Fabric Data Agent.
         
         Args:
-            prompt (str): The question or prompt to send to the data agent
-            model (str): Not used for Fabric Data Agents but required for compatibility
-            **kwargs: Additional parameters to pass to the completions API
+            question (str): The question to ask
+            timeout (int): Maximum time to wait for response in seconds
             
         Returns:
-            Dict[str, Any]: Response from the Fabric Data Agent
+            str: The response from the data agent
         """
+        if not question.strip():
+            raise ValueError("Question cannot be empty")
+        
+        print(f"\n❓ Asking: {question}")
+        
         try:
-            print(f"\n📤 Sending completion request using Assistants API pattern...")
-            
             client = self._get_openai_client()
             
-            # Create assistant (not actually used by Fabric)
-            assistant = client.beta.assistants.create(model=model)
+            # Create assistant without specifying model or instructions
+            assistant = client.beta.assistants.create(model="not used")
             
-            # Create thread
+            # Create thread and send message
             thread = client.beta.threads.create()
-            
-            # Add message to thread
-            message = client.beta.threads.messages.create(
+            client.beta.threads.messages.create(
                 thread_id=thread.id,
                 role="user",
-                content=prompt
+                content=question
             )
             
-            # Create run
+            # Start the run
             run = client.beta.threads.runs.create(
                 thread_id=thread.id,
                 assistant_id=assistant.id
             )
             
-            print(f"⏳ Waiting for response (run ID: {run.id})...")
-            
-            # Wait for run to complete
-            while run.status == "queued" or run.status == "in_progress":
-                print(f"Status: {run.status}")
+            # Monitor the run with timeout
+            start_time = time.time()
+            while run.status in ["queued", "in_progress"]:
+                if time.time() - start_time > timeout:
+                    print(f"⏰ Request timed out after {timeout} seconds")
+                    break
+                
+                print(f"⏳ Status: {run.status}")
                 time.sleep(2)
+                
                 run = client.beta.threads.runs.retrieve(
                     thread_id=thread.id,
-                    run_id=run.id,
+                    run_id=run.id
                 )
             
-            print(f"✅ Run completed with status: {run.status}")
+            print(f"✅ Final status: {run.status}")
             
-            # Get messages
-            response = client.beta.threads.messages.list(
+            # Get the response messages
+            messages = client.beta.threads.messages.list(
                 thread_id=thread.id,
                 order="asc"
             )
             
-            # Clean up thread
+            # Extract assistant responses
+            responses = []
+            for msg in messages:
+                if msg.role == "assistant":
+                    try:
+                        content = msg.content[0]
+                        # Handle different content types safely
+                        if hasattr(content, 'text'):
+                            text_content = getattr(content, 'text', None)
+                            if text_content is not None and hasattr(text_content, 'value'):
+                                responses.append(text_content.value)
+                            elif text_content is not None:
+                                responses.append(str(text_content))
+                            else:
+                                responses.append(str(content))
+                        else:
+                            responses.append(str(content))
+                    except (IndexError, AttributeError):
+                        responses.append(str(msg.content))
+            
+            # Clean up resources
             try:
                 client.beta.threads.delete(thread_id=thread.id)
-            except Exception as e:
-                print(f"Warning: Failed to delete thread: {e}")
+            except Exception as cleanup_error:
+                print(f"⚠️ Cleanup warning: {cleanup_error}")
             
-            # Return formatted response
-            messages = [{"role": msg.role, "content": msg.content[0].text.value} 
-                      for msg in response if hasattr(msg, 'content') and msg.content]
-            
-            return {
-                "choices": [{
-                    "message": messages[-1] if messages else {"role": "assistant", "content": "No response received"},
-                    "finish_reason": "stop"
-                }],
-                "created": int(time.time()),
-                "id": run.id,
-                "model": model,
-                "object": "chat.completion",
-                "all_messages": messages
-            }
-            
-        except Exception as e:
-            print(f"❌ Error getting completion: {e}")
-            
-            # Additional context for troubleshooting
-            print("\nMake sure your Data Agent is:")
-            print("1. Published in the Microsoft Fabric portal")
-            print("2. Configured with an OpenAI-compatible API")
-            print("3. Accessible with your current credentials")
-            print("4. Try using the URL verification tool: client = FabricDataAgentClient(verify_url=True)")
-            
-            raise
-    
-    def ask(self, prompt: str, model: str = "gpt-4", **kwargs) -> str:
-        """
-        Ask a question to the Fabric Data Agent and get a string response.
-        This is a simpler interface that returns just the response text.
-        
-        Args:
-            prompt (str): The question or prompt to send to the data agent
-            model (str): The model to use (default: "gpt-4")
-            **kwargs: Additional parameters to pass to the API
-            
-        Returns:
-            str: The response from the Fabric Data Agent
-        """
-        try:
-            # Use the Assistants API pattern for better reliability
-            response = self.get_completion(prompt=prompt, model=model, use_assistants_api=True, **kwargs)
-            
-            # Extract the text response from the appropriate part of the structure
-            if "all_messages" in response and response["all_messages"]:
-                # Get the last assistant message
-                assistant_messages = [msg for msg in response["all_messages"] if msg["role"] == "assistant"]
-                if assistant_messages:
-                    return assistant_messages[-1]["content"]
-            
-            # Fallback to choices structure
-            if "choices" in response and response["choices"]:
-                message = response["choices"][0].get("message", {})
-                if isinstance(message, dict) and "content" in message:
-                    return message["content"]
-                
-            # Further fallback
-            return str(response)
-            
-        except Exception as e:
-            # Log the error but return a string (don't raise)
-            error_msg = f"Error in ask method: {str(e)}"
-            print(error_msg)
-            return f"I encountered an error while processing your request: {str(e)}"
-    
-    def get_completion(self, messages: list = None, prompt: str = None, model: str = "gpt-4", 
-                       use_assistants_api: bool = True, **kwargs) -> Dict[str, Any]:
-        """
-        Get a completion from the Fabric Data Agent.
-        
-        Args:
-            messages (list): List of message dictionaries (system, user, assistant)
-            prompt (str): Alternative to messages - a single prompt string
-            model (str): The model to use for completions (default: "gpt-4")
-            use_assistants_api (bool): Whether to use Assistants API pattern (default: True)
-            **kwargs: Additional parameters to pass to the completions API
-            
-        Returns:
-            Dict[str, Any]: Response from the Fabric Data Agent
-        """
-        # Handle single prompt string
-        if prompt and not messages:
-            if use_assistants_api:
-                return self.get_completion_using_assistants_api(prompt, model, **kwargs)
+            # Return the response
+            if responses:
+                return "\n".join(responses)
             else:
-                messages = [{"role": "user", "content": prompt}]
-                
-        # Use Assistants API if requested (and we have a simple user message)
-        if use_assistants_api and messages and len(messages) == 1 and messages[0]["role"] == "user":
-            return self.get_completion_using_assistants_api(messages[0]["content"], model, **kwargs)
+                return "No response received from the data agent."
+        
+        except Exception as e:
+            print(f"❌ Error calling data agent: {e}")
+            return f"Error: {e}"
+    
+    def get_run_details(self, question: str) -> dict:
+        """
+        Ask a question and return detailed run information including steps.
+        
+        Args:
+            question (str): The question to ask
             
-        # Otherwise use direct OpenAI client API
-        # Check if we found a working URL during verification
-        if hasattr(self, 'working_url') and self.working_url:
-            # Use the working URL instead
-            data_agent_url = self.working_url
-        else:
-            data_agent_url = self.data_agent_url
+        Returns:
+            dict: Detailed response including run steps, metadata, and SQL queries if lakehouse data source
+        """
+        print(f"\n🔍 Getting detailed run info for: {question}")
         
         try:
-            # Get the OpenAI client
             client = self._get_openai_client()
             
-            # Use chat completions API directly
-            print(f"Sending completion request to: {data_agent_url}")
-            response = client.chat.completions.create(
-                model=model,
-                messages=messages,
-                **kwargs
+            # Create assistant and thread without specifying model or instructions
+            assistant = client.beta.assistants.create(model="not used")
+            thread = client.beta.threads.create()
+            
+            client.beta.threads.messages.create(
+                thread_id=thread.id,
+                role="user",
+                content=question
             )
             
-            # Convert response to dictionary if needed
-            if hasattr(response, 'model_dump'):
-                return response.model_dump()
-            else:
-                return response
+            # Start and monitor run
+            run = client.beta.threads.runs.create(
+                thread_id=thread.id,
+                assistant_id=assistant.id
+            )
+            
+            while run.status in ["queued", "in_progress"]:
+                print(f"⏳ Status: {run.status}")
+                time.sleep(2)
+                run = client.beta.threads.runs.retrieve(thread_id=thread.id, run_id=run.id)
+            
+            # Get detailed run steps
+            steps = client.beta.threads.runs.steps.list(
+                thread_id=thread.id,
+                run_id=run.id
+            )
+            
+            # Get messages
+            messages = client.beta.threads.messages.list(
+                thread_id=thread.id,
+                order="asc"
+            )
+            
+            # Extract SQL queries and data from steps if lakehouse data source is detected
+            sql_analysis = self._extract_sql_queries_with_data(steps)
+            
+            # Also try the old regex method as backup
+            if not sql_analysis["queries"]:
+                regex_queries = self._extract_sql_queries(steps)
+                if regex_queries:
+                    sql_analysis["queries"] = regex_queries
+                    sql_analysis["data_retrieval_query"] = regex_queries[0] if regex_queries else None
+            
+            # Also extract data from the final assistant message
+            messages_data = messages.model_dump()
+            assistant_messages = [msg for msg in messages_data.get('data', []) if msg.get('role') == 'assistant']
+            if assistant_messages:
+                latest_message = assistant_messages[-1]
+                content = latest_message.get('content', [])
+                if content and len(content) > 0:
+                    # Extract text content
+                    text_content = ""
+                    if isinstance(content[0], dict):
+                        if 'text' in content[0]:
+                            if isinstance(content[0]['text'], dict) and 'value' in content[0]['text']:
+                                text_content = content[0]['text']['value']
+                            else:
+                                text_content = str(content[0]['text'])
+                    else:
+                        text_content = str(content[0])
+                    
+                    # Extract structured data from the assistant's text response
+                    if text_content:
+                        text_data_preview = self._extract_data_from_text_response(text_content)
+                        if text_data_preview:
+                            # Add the text-based data preview
+                            if sql_analysis["queries"]:
+                                # If we have queries but no data previews, or empty previews, use the text-based one
+                                if not sql_analysis["data_previews"] or not any(sql_analysis["data_previews"]):
+                                    sql_analysis["data_previews"] = [text_data_preview]
+                                else:
+                                    # Add to existing previews
+                                    sql_analysis["data_previews"].append(text_data_preview)
+                                
+                                # If we don't have a specific data retrieval query identified, use the first query
+                                if not sql_analysis["data_retrieval_query"] and sql_analysis["queries"]:
+                                    sql_analysis["data_retrieval_query"] = sql_analysis["queries"][0]
+                                    sql_analysis["data_retrieval_query_index"] = 1
+            
+            # Clean up
+            try:
+                client.beta.threads.delete(thread_id=thread.id)
+            except Exception as cleanup_error:
+                print(f"⚠️ Warning: Thread cleanup failed: {cleanup_error}")
+            
+            result = {
+                "question": question,
+                "run_status": run.status,
+                "run_steps": steps.model_dump(),
+                "messages": messages.model_dump(),
+                "timestamp": time.time()
+            }
+            
+            # Add SQL analysis if found
+            if sql_analysis["queries"]:
+                result["sql_queries"] = sql_analysis["queries"]
+                result["sql_data_previews"] = sql_analysis["data_previews"]
+                result["data_retrieval_query"] = sql_analysis["data_retrieval_query"]
+                
+                print(f"🗃️ Found {len(sql_analysis['queries'])} SQL queries in lakehouse operations")
+                
+                for i, query in enumerate(sql_analysis["queries"], 1):
+                    print(f"📄 SQL Query {i}:")
+                    print(f"   {query}")
+                    
+                    # Show data preview if this query retrieved data
+                    if i == sql_analysis["data_retrieval_query_index"]:
+                        print(f"   🎯 This query retrieved the data!")
+                        if sql_analysis["data_previews"][i-1]:
+                            print(f"   📊 Data Preview:")
+                            preview = sql_analysis["data_previews"][i-1]
+                            
+                            # Check if the preview is a raw markdown table (single item)
+                            if len(preview) == 1 and '\n' in preview[0] and '|' in preview[0]:
+                                # This is a raw markdown table, print it directly
+                                print(preview[0])
+                            else:
+                                # This is parsed row data, print line by line
+                                for line in preview[:5]:  # Show first 5 lines
+                                    print(f"      {line}")
+                                if len(preview) > 5:
+                                    print(f"      ... and {len(preview) - 5} more lines")
+                    print()  # Empty line for readability
+            
+            return result
             
         except Exception as e:
-            print(f"❌ Error getting completion: {e}")
+            print(f"❌ Error getting run details: {e}")
+            return {"error": str(e)}
+
+    def _extract_sql_queries_with_data(self, steps) -> dict:
+        """
+        Extract SQL queries from run steps using direct JSON parsing and output analysis.
+        
+        Args:
+            steps: The run steps from the OpenAI API
             
-            # Try direct HTTP request as fallback
+        Returns:
+            dict: Contains queries, data previews, and which query retrieved data
+        """
+        sql_queries = []
+        data_previews = []
+        data_retrieval_query = None
+        data_retrieval_query_index = None
+        
+        try:
+            for step_idx, step in enumerate(steps.data):
+                if hasattr(step, 'step_details') and step.step_details:
+                    step_details = step.step_details
+                    
+                    # Check for tool calls which typically contain the SQL queries
+                    if hasattr(step_details, 'tool_calls') and step_details.tool_calls:
+                        for tool_idx, tool_call in enumerate(step_details.tool_calls):
+                            # Extract SQL from function arguments
+                            sql_from_args = self._extract_sql_from_function_args(tool_call)
+                            if sql_from_args:
+                                sql_queries.extend(sql_from_args)
+                            
+                            # Extract SQL from tool call output (where it's actually located in Fabric)
+                            sql_from_output = self._extract_sql_from_output(tool_call)
+                            if sql_from_output:
+                                sql_queries.extend(sql_from_output)
+                            
+                            # Extract data from tool call output
+                            data_preview = self._extract_structured_data_from_output(tool_call)
+                            if data_preview:
+                                # If we found data and SQL in this step, it's likely the retrieval query
+                                if sql_from_args or sql_from_output:
+                                    all_sql_this_call = sql_from_args + sql_from_output
+                                    data_retrieval_query = all_sql_this_call[-1] if all_sql_this_call else None
+                                    data_retrieval_query_index = len(sql_queries)
+                            
+                            data_previews.append(data_preview)
+        
+        except Exception as e:
+            print(f"⚠️ Warning: Could not extract SQL queries: {e}")
+        
+        # Remove duplicates while preserving order
+        unique_queries = list(dict.fromkeys(sql_queries))
+        
+        return {
+            "queries": unique_queries,
+            "data_previews": data_previews,
+            "data_retrieval_query": data_retrieval_query,
+            "data_retrieval_query_index": data_retrieval_query_index
+        }
+
+    def _extract_sql_from_function_args(self, tool_call) -> list:
+        """
+        Extract SQL queries from tool call function arguments.
+        
+        Args:
+            tool_call: OpenAI tool call object
+            
+        Returns:
+            list: SQL queries found
+        """
+        import json
+        sql_queries = []
+        
+        try:
+            if hasattr(tool_call, 'function') and tool_call.function:
+                if hasattr(tool_call.function, 'arguments'):
+                    args_str = tool_call.function.arguments
+                    
+                    # Parse the arguments JSON
+                    args = json.loads(args_str)
+                    
+                    if isinstance(args, dict):
+                        # Common keys where SQL queries are stored in Fabric Data Agents
+                        sql_keys = ['sql', 'query', 'sql_query', 'statement', 'command', 'code']
+                        
+                        for key in sql_keys:
+                            if key in args and args[key]:
+                                sql_query = str(args[key]).strip()
+                                if sql_query and len(sql_query) > 10:  # Basic validation
+                                    sql_queries.append(sql_query)
+                        
+                        # Also check for nested structures
+                        for key, value in args.items():
+                            if isinstance(value, dict):
+                                for nested_key in sql_keys:
+                                    if nested_key in value and value[nested_key]:
+                                        sql_query = str(value[nested_key]).strip()
+                                        if sql_query and len(sql_query) > 10:
+                                            sql_queries.append(sql_query)
+        
+        except (json.JSONDecodeError, AttributeError) as e:
+            # If JSON parsing fails, fall back to basic string search
             try:
-                import requests
+                args_str = str(tool_call.function.arguments)
+                # Look for common SQL patterns in the string
+                if any(keyword in args_str.upper() for keyword in ['SELECT', 'INSERT', 'UPDATE', 'DELETE']):
+                    # Use minimal regex as fallback
+                    import re
+                    sql_pattern = r'"(?:sql|query|statement|code)"\s*:\s*"([^"]+)"'
+                    matches = re.findall(sql_pattern, args_str, re.IGNORECASE)
+                    sql_queries.extend([match.strip() for match in matches if len(match.strip()) > 10])
+            except Exception as parse_error:
+                print(f"⚠️ Warning: Could not parse tool call arguments: {parse_error}")
+        
+        return sql_queries
+
+    def _extract_sql_from_output(self, tool_call) -> list:
+        """
+        Extract SQL queries from tool call output.
+        
+        Args:
+            tool_call: OpenAI tool call object
+            
+        Returns:
+            list: SQL queries found in output
+        """
+        import json
+        import re
+        sql_queries = []
+        
+        try:
+            if hasattr(tool_call, 'output') and tool_call.output:
+                output_str = str(tool_call.output)
                 
-                print(f"Trying direct HTTP request as fallback...")
-                
-                # Ensure we have a token
-                if not hasattr(self, 'token_value') or not self.token_value:
-                    self._refresh_token()
-                
-                # Append /chat/completions if not already present
-                if not data_agent_url.endswith("/chat/completions"):
-                    if data_agent_url.endswith("/openai"):
-                        data_agent_url = f"{data_agent_url}/chat/completions"
-                    else:
-                        data_agent_url = f"{data_agent_url}/openai/chat/completions"
-                
-                print(f"Sending completion request to: {data_agent_url}")
-                
-                headers = {
-                    "Authorization": f"Bearer {self.token_value}",
-                    "Content-Type": "application/json"
-                }
-                
-                data = {
-                    "messages": messages,
-                    "model": model,
-                    **kwargs
-                }
-                
-                response = requests.post(data_agent_url, headers=headers, json=data)
-                
-                if response.status_code == 200:
-                    return response.json()
-                else:
-                    error_msg = f"API Error: {response.status_code} - {response.text}"
-                    print(error_msg)
+                # First try to parse as JSON
+                try:
+                    output_json = json.loads(output_str)
                     
-                    # Provide helpful troubleshooting information
-                    if response.status_code == 404:
-                        print("\nTroubleshooting tips for 404 Not Found:")
-                        print("1. Verify your Data Agent is published in Microsoft Fabric")
-                        print("2. Get the exact URL from the Fabric portal 'Published URL'")
-                        print("3. Try using the URL verification tool: client = FabricDataAgentClient(verify_url=True)")
-                        print("4. Check if your token has permission to access this API")
-                        print("5. Try again with use_assistants_api=True")
+                    if isinstance(output_json, dict):
+                        # Look for SQL in common keys
+                        sql_keys = ['sql', 'query', 'sql_query', 'statement', 'command', 'code', 'generated_code']
+                        for key in sql_keys:
+                            if key in output_json and output_json[key]:
+                                sql_query = str(output_json[key]).strip()
+                                if sql_query and len(sql_query) > 10:
+                                    sql_queries.append(sql_query)
+                        
+                        # Check nested structures
+                        for key, value in output_json.items():
+                            if isinstance(value, dict):
+                                for nested_key in sql_keys:
+                                    if nested_key in value and value[nested_key]:
+                                        sql_query = str(value[nested_key]).strip()
+                                        if sql_query and len(sql_query) > 10:
+                                            sql_queries.append(sql_query)
+                
+                except json.JSONDecodeError:
+                    # If not JSON, use regex to find SQL patterns
+                    pass
+                
+                # Always also try regex as backup/additional method
+                if any(keyword in output_str.upper() for keyword in ['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'FROM']):
+                    # Enhanced regex patterns for SQL extraction
+                    sql_patterns = [
+                        r'"(?:sql|query|statement|code|generated_code)"\s*:\s*"([^"]+)"',
+                        r"'(?:sql|query|statement|code|generated_code)'\s*:\s*'([^']+)'",
+                        r'(SELECT\s+.*?FROM\s+.*?)(?=\s*[;}"\'\n]|\s*$)',
+                        r'(INSERT\s+INTO\s+.*?)(?=\s*[;}"\'\n]|\s*$)',
+                        r'(UPDATE\s+.*?SET\s+.*?)(?=\s*[;}"\'\n]|\s*$)',
+                        r'(DELETE\s+FROM\s+.*?)(?=\s*[;}"\'\n]|\s*$)'
+                    ]
                     
-                    raise ValueError(error_msg)
-            except Exception as fallback_error:
-                print(f"Fallback request also failed: {fallback_error}")
+                    for pattern in sql_patterns:
+                        matches = re.findall(pattern, output_str, re.IGNORECASE | re.DOTALL)
+                        for match in matches:
+                            clean_query = match.strip().replace('\\n', '\n').replace('\\t', '\t')
+                            clean_query = re.sub(r'\s+', ' ', clean_query)
+                            if len(clean_query) > 10:
+                                sql_queries.append(clean_query)
+        
+        except Exception as e:
+            print(f"⚠️ Warning: Could not extract SQL from output: {e}")
+        
+        return sql_queries
+
+    def _extract_structured_data_from_output(self, tool_call) -> list:
+        """
+        Extract structured data from tool call output using JSON parsing.
+        
+        Args:
+            tool_call: OpenAI tool call object
+            
+        Returns:
+            list: Formatted data lines
+        """
+        import json
+        data_lines = []
+        
+        try:
+            if hasattr(tool_call, 'output') and tool_call.output:
+                output_str = str(tool_call.output)
                 
-                # Additional context for troubleshooting
-                print("\nMake sure your Data Agent is:")
-                print("1. Published in the Microsoft Fabric portal")
-                print("2. Configured with an OpenAI-compatible API")
-                print("3. Accessible with your current credentials")
-                print("4. Try using the URL verification tool: client = FabricDataAgentClient(verify_url=True)")
-                print("5. Try again with use_assistants_api=True (recommended by Microsoft)")
+                # Try to parse as JSON first
+                try:
+                    data = json.loads(output_str)
+                    
+                    if isinstance(data, list) and len(data) > 0:
+                        # Handle list of records (typical query result)
+                        if isinstance(data[0], dict):
+                            headers = list(data[0].keys())
+                            data_lines.append("| " + " | ".join(headers) + " |")
+                            data_lines.append("|" + "---|" * len(headers))
+                            
+                            for row in data[:10]:  # Limit to first 10 rows
+                                values = [str(row.get(h, "")) for h in headers]
+                                data_lines.append("| " + " | ".join(values) + " |")
+                    
+                    elif isinstance(data, dict):
+                        # Handle single record or structured response
+                        if 'data' in data and isinstance(data['data'], list):
+                            # Nested data structure
+                            return self._format_list_data(data['data'])
+                        elif 'results' in data and isinstance(data['results'], list):
+                            # Results structure
+                            return self._format_list_data(data['results'])
+                        else:
+                            # Single record
+                            data_lines.append("| Key | Value |")
+                            data_lines.append("|---|---|")
+                            for key, value in data.items():
+                                data_lines.append(f"| {key} | {str(value)} |")
                 
-                # Re-raise the original error
-                raise e
+                except json.JSONDecodeError:
+                    # If not JSON, look for other structured formats
+                    data_lines = self._extract_data_preview(output_str)
+        
+        except Exception as e:
+            print(f"⚠️ Warning: Could not extract structured data: {e}")
+        
+        return data_lines
+
+    def _extract_markdown_table(self, text: str) -> str:
+        """
+        Extract raw markdown table from the assistant's text response.
+        
+        Args:
+            text (str): The assistant's text response
+            
+        Returns:
+            str: Raw markdown table if found, or empty string if no table found
+        """
+        lines = text.split('\n')
+        table_lines = []
+        in_table = False
+        header_found = False
+        
+        for line in lines:
+            line_stripped = line.strip()
+            
+            # Check if this line contains markdown table separators
+            if '|' in line_stripped and ('---' in line_stripped or '-' in line_stripped and line_stripped.count('-') > 3):
+                table_lines.append(line)
+                in_table = True
+                header_found = True
+            elif '|' in line_stripped and (in_table or not header_found):
+                # This is a table row (header or data row)
+                table_lines.append(line)
+                in_table = True
+            elif in_table and line_stripped == '':
+                # Empty line - might continue table, add it but don't break yet
+                table_lines.append(line)
+            elif in_table and '|' not in line_stripped and line_stripped != '':
+                # Non-table line after we were in a table - end of table
+                break
+        
+        # Clean up trailing empty lines
+        while table_lines and table_lines[-1].strip() == '':
+            table_lines.pop()
+        
+        # Return the raw markdown table if we found at least a header and separator
+        if len(table_lines) >= 2:
+            return '\n'.join(table_lines)
+        else:
+            return ""
+
+    def _extract_data_from_text_response(self, text_content: str) -> list:
+        """
+        Extract structured data from the assistant's text response.
+        First tries to find raw markdown tables, then falls back to numbered list parsing.
+        
+        Args:
+            text_content (str): The text content from the assistant
+            
+        Returns:
+            list: Formatted data lines (raw markdown table as single item, or parsed rows)
+        """
+        import re
+        
+        # First, try to extract a raw markdown table
+        markdown_table = self._extract_markdown_table(text_content)
+        if markdown_table:
+            # Return the raw markdown table as a single formatted block
+            return [markdown_table]
+        
+        # Fallback to numbered list parsing (existing logic)
+        data_lines = []
+        
+        try:
+            lines = text_content.split('\n')
+            
+            # Look for numbered lists with data (like the example output)
+            numbered_pattern = r'^\d+\.\s+'
+            data_rows = []
+            
+            for line in lines:
+                line = line.strip()
+                if re.match(numbered_pattern, line):
+                    # Remove the number prefix
+                    clean_line = re.sub(numbered_pattern, '', line)
+                    data_rows.append(clean_line)
+            
+            if data_rows and len(data_rows) > 0:
+                # Try to parse the structured data from the text
+                first_row = data_rows[0]
+                if ':' in first_row:
+                    # Parse key-value format
+                    # Example: "Date: 4/29/2020, State: WI, Positive: 7,660, ..."
+                    
+                    # Extract headers from first row
+                    headers = []
+                    values_first_row = []
+                    
+                    pairs = first_row.split(', ')
+                    for pair in pairs:
+                        if ':' in pair:
+                            key, value = pair.split(':', 1)
+                            headers.append(key.strip())
+                            values_first_row.append(value.strip())
+                    
+                    if headers:
+                        # Create table format
+                        data_lines.append("| " + " | ".join(headers) + " |")
+                        data_lines.append("|" + "---|" * len(headers))
+                        
+                        # Add first row
+                        data_lines.append("| " + " | ".join(values_first_row) + " |")
+                        
+                        # Parse remaining rows
+                        for row in data_rows[1:]:
+                            values = []
+                            pairs = row.split(', ')
+                            for pair in pairs:
+                                if ':' in pair:
+                                    _, value = pair.split(':', 1)
+                                    values.append(value.strip())
+                            
+                            if len(values) == len(headers):
+                                data_lines.append("| " + " | ".join(values) + " |")
+                            
+                        return data_lines
+                
+                # If we couldn't parse structured format, return the raw rows as-is
+                if not data_lines and data_rows:
+                    # Just show the numbered list data
+                    return [f"Row {i+1}: {row}" for i, row in enumerate(data_rows)]
+            
+            # Alternative: Look for table-like structures in the text
+            # Check if there are lines that look like table rows
+            potential_table_lines = []
+            for line in lines:
+                line = line.strip()
+                # Look for lines with multiple separators that could be table data
+                if line and ('|' in line or line.count(',') >= 2 or line.count(':') >= 2):
+                    potential_table_lines.append(line)
+            
+            if potential_table_lines and not data_lines:
+                return potential_table_lines[:10]  # Return first 10 lines
+        
+        except Exception as e:
+            print(f"⚠️ Warning: Could not extract data from text response: {e}")
+        
+        return data_lines
+
+    def _format_list_data(self, data_list) -> list:
+        """
+        Format a list of data records into table format.
+        """
+        data_lines = []
+        
+        if len(data_list) > 0 and isinstance(data_list[0], dict):
+            headers = list(data_list[0].keys())
+            data_lines.append("| " + " | ".join(headers) + " |")
+            data_lines.append("|" + "---|" * len(headers))
+            
+            for row in data_list[:10]:  # Limit to first 10 rows
+                values = [str(row.get(h, "")) for h in headers]
+                data_lines.append("| " + " | ".join(values) + " |")
+        
+        return data_lines
+
+    def _extract_data_preview(self, text: str) -> list:
+        """
+        Extract data preview from text output.
+        
+        Args:
+            text (str): Text to search for tabular data
+            
+        Returns:
+            list: List of data rows found
+        """
+        import re
+        import json
+        
+        data_lines = []
+        
+        try:
+            # Look for JSON-like data structures
+            json_pattern = r'\[[\s\S]*?\]'
+            json_matches = re.findall(json_pattern, text)
+            
+            for match in json_matches:
+                try:
+                    # Try to parse as JSON
+                    data = json.loads(match)
+                    if isinstance(data, list) and len(data) > 0:
+                        # Convert to readable format
+                        if isinstance(data[0], dict):
+                            # List of dictionaries (typical query result)
+                            headers = list(data[0].keys())
+                            data_lines.append("| " + " | ".join(headers) + " |")
+                            data_lines.append("|" + "---|" * len(headers))
+                            
+                            for row in data[:10]:  # Limit to first 10 rows
+                                values = [str(row.get(h, "")) for h in headers]
+                                data_lines.append("| " + " | ".join(values) + " |")
+                        break  # Found valid JSON data
+                except json.JSONDecodeError:
+                    continue
+            
+            # If no JSON found, look for pipe-separated tables
+            if not data_lines:
+                lines = text.split('\n')
+                table_lines = []
+                
+                for line in lines:
+                    # Look for lines that contain multiple pipe characters (table format)
+                    if line.count('|') >= 2:
+                        table_lines.append(line.strip())
+                    elif table_lines and line.strip() == "":
+                        # End of table
+                        break
+                    elif table_lines and not line.strip().startswith('|'):
+                        # Non-table line after table started
+                        break
+                
+                if table_lines:
+                    data_lines = table_lines[:15]  # Limit to first 15 lines
+            
+            # Look for CSV-like data
+            if not data_lines:
+                lines = text.split('\n')
+                csv_lines = []
+                
+                for line in lines:
+                    # Look for comma-separated values with consistent column count
+                    if ',' in line and len(line.split(',')) >= 2:
+                        csv_lines.append(line.strip())
+                        if len(csv_lines) >= 10:  # Limit preview
+                            break
+                    elif csv_lines:
+                        break
+                
+                if len(csv_lines) > 1:  # At least header + one data row
+                    data_lines = csv_lines
+        
+        except Exception as e:
+            print(f"⚠️ Warning: Could not extract data preview: {e}")
+        
+        return data_lines
+
+    def _extract_sql_queries(self, steps) -> list:
+        """
+        Extract SQL queries from run steps when lakehouse data source is used.
+        
+        Args:
+            steps: The run steps from the OpenAI API
+            
+        Returns:
+            list: List of SQL queries found in the steps
+        """
+        sql_queries = []
+        
+        try:
+            for step in steps.data:
+                if hasattr(step, 'step_details') and step.step_details:
+                    step_details = step.step_details
+                    
+                    # Check for tool calls that might contain SQL
+                    if hasattr(step_details, 'tool_calls') and step_details.tool_calls:
+                        for tool_call in step_details.tool_calls:
+                            # Look for SQL queries in tool call details
+                            if hasattr(tool_call, 'function') and tool_call.function:
+                                if hasattr(tool_call.function, 'arguments'):
+                                    args_str = str(tool_call.function.arguments)
+                                    # Look for SQL patterns in arguments
+                                    sql_queries.extend(self._find_sql_in_text(args_str))
+                            
+                            # Check tool call outputs for SQL
+                            if hasattr(tool_call, 'output') and tool_call.output:
+                                output_str = str(tool_call.output)
+                                sql_queries.extend(self._find_sql_in_text(output_str))
+                    
+                    # Check step details for any SQL content
+                    step_str = str(step_details)
+                    sql_queries.extend(self._find_sql_in_text(step_str))
+        
+        except Exception as e:
+            print(f"⚠️ Warning: Could not extract SQL queries: {e}")
+        
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_queries = []
+        for query in sql_queries:
+            if query not in seen:
+                seen.add(query)
+                unique_queries.append(query)
+        
+        return unique_queries
+
+    def _find_sql_in_text(self, text: str) -> list:
+        """
+        Find SQL queries in text using pattern matching.
+        
+        Args:
+            text (str): Text to search for SQL queries
+            
+        Returns:
+            list: List of SQL queries found
+        """
+        import re
+        
+        sql_queries = []
+        
+        # Common SQL keywords that indicate a query
+        sql_patterns = [
+            r'(SELECT\s+.*?FROM\s+.*?)(?=\s*;|\s*$|\s*\}|\s*\)|\s*,)',
+            r'(INSERT\s+INTO\s+.*?)(?=\s*;|\s*$|\s*\}|\s*\))',
+            r'(UPDATE\s+.*?SET\s+.*?)(?=\s*;|\s*$|\s*\}|\s*\))',
+            r'(DELETE\s+FROM\s+.*?)(?=\s*;|\s*$|\s*\}|\s*\))',
+            r'(CREATE\s+TABLE\s+.*?)(?=\s*;|\s*$|\s*\}|\s*\))',
+            r'(ALTER\s+TABLE\s+.*?)(?=\s*;|\s*$|\s*\}|\s*\))',
+            r'(DROP\s+TABLE\s+.*?)(?=\s*;|\s*$|\s*\}|\s*\))'
+        ]
+        
+        for pattern in sql_patterns:
+            matches = re.findall(pattern, text, re.IGNORECASE | re.DOTALL)
+            for match in matches:
+                # Clean up the SQL query
+                clean_query = match.strip().replace('\n', ' ').replace('\t', ' ')
+                clean_query = re.sub(r'\s+', ' ', clean_query)  # Normalize whitespace
+                if len(clean_query) > 10:  # Filter out very short matches
+                    sql_queries.append(clean_query)
+        
+        return sql_queries
+
+
+def main():
+    """
+    Example usage of the Fabric Data Agent Client.
+    """
+    # Configuration - Update these with your actual values
+    TENANT_ID = os.getenv("TENANT_ID", "your-tenant-id-here")
+    DATA_AGENT_URL = os.getenv("DATA_AGENT_URL", "your-data-agent-url-here")
+    
+    # Validate configuration
+    if TENANT_ID == "your-tenant-id-here" or DATA_AGENT_URL == "your-data-agent-url-here":
+        print("❌ Please update TENANT_ID and DATA_AGENT_URL with your actual values")
+        print("\nYou can either:")
+        print("1. Edit this script and update the values directly")
+        print("2. Set environment variables: TENANT_ID and DATA_AGENT_URL")
+        print("3. Create a .env file with these variables")
+        return
+    
+    try:
+        # Initialize the client (this will trigger authentication)
+        client = FabricDataAgentClient(
+            tenant_id=TENANT_ID,
+            data_agent_url=DATA_AGENT_URL
+        )
+        
+        # Example questions
+        questions = [
+            "What data is available in the lakehouse?",
+            "Show me the top 5 records from any available table",
+            "What are the column names and types in the main tables?"
+        ]
+        
+        print("\n" + "="*60)
+        print("🤖 Fabric Data Agent Client - Ready!")
+        print("="*60)
+        
+        for i, question in enumerate(questions, 1):
+            print(f"\n📋 Example {i}:")
+            response = client.ask(question)
+            
+            print(f"\n💬 Response:")
+            print("-" * 50)
+            print(response)
+            print("-" * 50)
+            
+            # Wait between requests
+            if i < len(questions):
+                n = 1
+                print(f"\nWaiting {n} seconds before next question...")
+                time.sleep(n)
+        
+        print("\n✅ All examples completed successfully!")
+        
+    except KeyboardInterrupt:
+        print("\n⏹️ Operation cancelled by user")
+    except Exception as e:
+        print(f"\n❌ Error: {e}")
+
+
+if __name__ == "__main__":
+    main()
