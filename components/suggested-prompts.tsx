@@ -10,12 +10,12 @@ const prompts = [
   {
     icon: <TrendingUp className="h-4 w-4" />,
     title: "Competitor Analysis",
-    prompt: "What are the top competitor mentions in our call transcripts on September 1st?"
+    prompt: "What are the top competitor mentions in our call transcripts on September 12th?"
   },
   {
     icon: <Users className="h-4 w-4" />,
     title: "Customer Switching",
-    prompt: "What were the most common cancellation reasons on September 1st?"
+    prompt: "What were the most common cancellation reasons on September 14th?"
   },
   {
     icon: <ClipboardPen className="h-4 w-4" />,

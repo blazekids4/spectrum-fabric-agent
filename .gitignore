@@ -6,6 +6,8 @@
 do_not_deploy/
 __pycache__/
 
+env*
+
 venv/
 env/
 *.pyc
@@ -13,7 +15,7 @@ env/
 *.pyd
 .Python
 
-
+do-not-deploy/
 
 # next.js
 /.next/
