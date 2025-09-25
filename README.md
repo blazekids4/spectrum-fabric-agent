@@ -1,252 +1,166 @@
-# Spectrum Fabric Data Agent: Customer Deployment Guide
+# Spectrum Fabric Agent – Production Deployment Guide
 
-This guide provides step-by-step instructions for deploying the Spectrum Fabric Data Agent application in your Azure tenant. The application consists of two main components:
+This project delivers a conversational experience backed by Microsoft Fabric data:
 
-1. A Next.js frontend deployed as an Azure Static Web App
-2. A Python API backend deployed as an Azure Function App
+- A **Next.js** frontend hosted on **Azure Static Web Apps (SWA)**
+- A **Python Azure Functions API** that connects to Fabric by using a managed identity
 
-## Prerequisites
+The `deploy-to-prod.ps1` script now provisions, deploys, and links both tiers end-to-end. Use this guide to configure the repo, run the deployment, and validate the environment.
 
-Before you begin, ensure you have the following:
+## 1. Prerequisites
 
-- **Azure subscription** with permissions to create resources
-- **Microsoft Fabric workspace** with appropriate access
-- **Azure CLI** installed (version 2.40.0 or later)
-- **Node.js** (version 22.x or later)
-- **npm** (version 10.x or later)
-- **Python** (version 3.11)
-- **PowerShell** (version 7.x recommended)
+Install or verify the following locally:
 
-## Step 1: Clone the Repository
+- **Azure subscription** with permissions to create resource groups, Static Web Apps, and Function Apps
+- **Microsoft Fabric workspace** with Data Agent configured
+- **Azure CLI** ≥ 2.63 ([Install](https://docs.microsoft.com/cli/azure/install-azure-cli))
+  - Static Web Apps extension: `az extension add --name staticwebapp`
+- **Node.js** ≥ 22 with npm ≥ 10 ([Install](https://nodejs.org/))
+- **Python** 3.11 ([Install](https://www.python.org/downloads/))
+- **PowerShell** 7+ ([Install](https://docs.microsoft.com/powershell/scripting/install/installing-powershell))
+- **Git** ([Install](https://git-scm.com/))
+
+> For a detailed architecture overview, see [DEPLOYMENT.md](DEPLOYMENT.md).
+
+## 2. Clone the repository
 
 ```powershell
 git clone https://github.com/blazekids4/spectrum-fabric-agent.git
 cd spectrum-fabric-agent
 ```
 
-## Step 2: Configure Environment Variables
+## 3. Configure backend settings (`env.json`)
 
-1. Create your environment configuration file by copying the sample:
+Create the configuration file from the sample and populate your Fabric details:
 
 ```powershell
 Copy-Item env.json.sample env.json
 ```
 
-2. Edit the `env.json` file with your Microsoft Fabric details:
+Update the placeholders with values from your Azure tenant and Fabric workspace:
 
 ```json
 {
-  "TENANT_ID": "your-azure-tenant-id",
-  "DATA_AGENT_URL": "your-fabric-data-agent-url",
-  "WEBSITES_PORT": "8000"
+  "TENANT_ID": "00000000-0000-0000-0000-000000000000",
+  "FABRIC_DATA_AGENT_NAME": "your-fabric-agent-name",
+  "FABRIC_WORKSPACE_ID": "workspace-guid",
+  "DATA_AGENT_URL": "https://api.fabric.microsoft.com/v1/workspaces/<workspace>/aiskills/<agent>/aiassistant/openai"
 }
 ```
 
-- `TENANT_ID`: Your Azure tenant ID (can be found in Azure Portal → Azure Active Directory → Properties)
-- `DATA_AGENT_URL`: The URL to your Microsoft Fabric Data Agent
-- `WEBSITES_PORT`: Port for the Function App (keep as 8000)
+> These values are pushed into the Function App by the deployment script so the Azure Function can authenticate to Fabric.
 
-## Step 3: Install Dependencies
-
-Install the frontend dependencies:
+## 4. Install frontend dependencies
 
 ```powershell
 npm install
 ```
 
-## Step 4: Deploy the Application
+## 5. Run the production deployment script
 
-The deployment process involves three main steps, all of which are automated through PowerShell scripts:
-
-### 4.1. Create Azure Resources
-
-This script will create all necessary Azure resources:
+`deploy-to-prod.ps1` provisions the full stack, deploys source code, links the backend to the Static Web App, and sets required configuration values.
 
 ```powershell
-./deploy_swa.ps1 -ResourceGroup "your-resource-group-name" -StaticWebAppName "your-app-name" -FunctionAppName "your-app-name-functionapp" -Location "your-preferred-region"
+./deploy-to-prod.ps1 `
+  -ResourceGroup "demo-charter-app6" `
+  -StaticWebAppName "demo-charter-app6-fe" `
+  -FunctionAppName "demo-charter-app6-be" `
+  -Location "centralus"
 ```
 
-Replace the parameters with your preferred values:
-- `ResourceGroup`: A new or existing resource group
-- `StaticWebAppName`: Name for your Static Web App (lowercase, no spaces)
-- `FunctionAppName`: Name for your Function App (lowercase, no spaces)
-- `Location`: Azure region (e.g., "centralus", "eastus", "westeurope")
+What the script does:
 
-This script will:
-- Create or use an existing Resource Group
-- Create an Azure Static Web App
-- Create a Storage Account for the Function App
-- Create an App Service Plan (B1 tier)
-- Create an Azure Function App with Python 3.11 runtime
-- Enable system-assigned managed identity for the Function App
-- Configure environment variables from env.json
-- Set up proper CORS between the Function App and Static Web App
+1. Creates/updates the resource group, Static Web App (Standard SKU), storage account, premium Linux App Service plan, and Function App.
+2. Pushes environment configuration from `env.json`, enforces Function App production settings (no Oryx build, managed identity enabled, HTTPS only).
+3. Packages and deploys the Python API (`api/function_app.py`) via zip deployment and verifies the `/api/health` endpoint.
+4. Builds the Next.js app in production mode, exports static assets, and deploys them with the SWA CLI.
+5. Links the Function App to the Static Web App (SWA “Bring your own API”) and configures CORS.
+6. Enables Application Insights for monitoring.
 
-### 4.2. Deploy the Frontend
+If any step fails, the script surfaces logs and troubleshooting hints—fix the issue and re-run; it is idempotent for existing resources.
 
-Deploy the Next.js frontend to Azure Static Web Apps:
+## 6. Post-deployment configuration
+
+After the script completes, confirm the production wiring:
+
+### 6.1 Verify the SWA ↔ Function link
 
 ```powershell
-./deploy-frontend-swa.ps1 -ResourceGroup "your-resource-group-name" -StaticWebAppName "your-app-name"
+az staticwebapp show `
+  --name demo-charter-app6-fe `
+  --resource-group demo-charter-app6 `
+  --query "properties.linkedBackends"
 ```
 
-This script will:
-- Build the Next.js application
-- Create static exports for Azure Static Web Apps
-- Deploy the built files to your Static Web App
+Expect an entry whose `backendResourceId` points to your Function App and `provisioningState` is `Succeeded`.
 
-### 4.3. Deploy the API Backend
+### 6.2 Ensure the frontend calls the correct API host
 
-Deploy the Python API to Azure Functions:
+The deployment sets the Static Web App application setting `NEXT_PUBLIC_API_URL` so the frontend’s `/api/chat` requests reach your Function App base URL.
 
 ```powershell
-./deploy-api-function.ps1 -ResourceGroup "your-resource-group-name" -FunctionAppName "your-app-name-functionapp"
+az staticwebapp appsettings set `
+  --name demo-charter-app6-fe `
+  --resource-group demo-charter-app6 `
+  --setting NEXT_PUBLIC_API_URL="https://demo-charter-app6-be.azurewebsites.net"
+
+az staticwebapp appsettings list `
+  --name demo-charter-app6-fe `
+  --resource-group demo-charter-app6 `
+  --output table
 ```
 
-This script will:
-- Package your Python API code
-- Deploy it to your Function App
-- Configure the necessary environment variables
+> Azure CLI redacts values in the JSON output, but the setting will appear in the table.
 
-## Step 5: Configure Managed Identity Permissions
+## 7. Grant Fabric permissions to the managed identity
 
-The Function App uses a system-assigned managed identity to securely access Microsoft Fabric resources. You need to grant this identity appropriate permissions:
-
-1. Get the managed identity principal ID:
+The Function App uses its system-assigned managed identity to call Fabric APIs. Grant it workspace access:
 
 ```powershell
-az functionapp identity show --name "your-app-name-functionapp" --resource-group "your-resource-group-name" --query "principalId" -o tsv
+$principalId = az functionapp identity show `
+  --name demo-charter-app6-be `
+  --resource-group demo-charter-app6 `
+  --query principalId -o tsv
 ```
 
-2. Use this principal ID to grant access in your Microsoft Fabric workspace:
-   - Navigate to your Microsoft Fabric workspace
-   - Go to "Access control" or "Settings" → "Access control"
-   - Add a new role assignment
-   - Search for the principal ID you retrieved
-   - Assign appropriate roles (such as "Reader" or specific data access roles)
+Add this principal to your Fabric workspace (Fabric → Settings → Access control) with the appropriate roles.
 
-## Step 6: Verify Deployment
+## 8. Validate the deployment
 
-### Function App Verification
-
-1. Check if your Function App is running:
+### 8.1 Health check
 
 ```powershell
-az functionapp show --name "your-app-name-functionapp" --resource-group "your-resource-group-name" --query "{hostname:defaultHostName, state:state}" -o json
+Invoke-RestMethod https://demo-charter-app6-be.azurewebsites.net/api/health
 ```
 
-The state should be "Running".
+Expected JSON response includes status `healthy` and Fabric metadata.
 
-### Static Web App Verification
+### 8.2 Frontend smoke test
 
-1. Get your Static Web App URL:
+1. Browse to `https://demo-charter-app6-fe.azurestaticapps.net`.
+2. Use the chat interface; monitor the browser DevTools → Network tab—the `/api/chat` call should return HTTP 200 with a response payload from the Function App.
+
+### 8.3 Live logs (optional)
 
 ```powershell
-az staticwebapp environment list --name "your-app-name" --resource-group "your-resource-group-name" --query "[?status=='Ready'].hostname" -o tsv
+az functionapp log tail `
+  --name demo-charter-app6-be `
+  --resource-group demo-charter-app6
 ```
 
-2. Open this URL in a browser to access your application.
+## 9. Troubleshooting
 
-## Troubleshooting
+- **Frontend cannot reach the API:** ensure `NEXT_PUBLIC_API_URL` is set and the SWA backend link shows `Succeeded`.
+- **Fabric authentication errors:** double-check the managed identity permissions and the values in `env.json`.
+- **Deployment failures:** review the build output in the script or pull logs from Kudu (`https://<function-app-name>.scm.azurewebsites.net`).
+- **Local testing:** run `npm run dev` to start Next.js and the Azure Function Core Tools side-by-side (`npm run func-dev`).
 
-### 1. Static Web App Shows Default Welcome Page
+## 10. Ongoing maintenance
 
-If you see "Congratulations on your new site!" instead of your application:
-
-```powershell
-# Re-deploy with explicit API configuration
-$token = az staticwebapp secrets list --name "your-app-name" --resource-group "your-resource-group-name" --query "properties.apiKey" -o tsv
-npx @azure/static-web-apps-cli deploy out --api-language python --api-version 3.11 --api-location ./api --deployment-token $token
-```
-
-### 2. API Connection Issues
-
-If the frontend loads but can't connect to the API:
-
-1. Verify CORS settings:
-
-```powershell
-az functionapp cors show --name "your-app-name-functionapp" --resource-group "your-resource-group-name"
-```
-
-It should include your Static Web App domain in allowedOrigins.
-
-2. Check that the API URL is correctly set:
-
-```powershell
-az staticwebapp appsettings list --name "your-app-name" --resource-group "your-resource-group-name"
-```
-
-It should include NEXT_PUBLIC_API_URL pointing to your Function App.
-
-### 3. Function App Deployment Issues
-
-If the Function App deployment fails:
-
-```powershell
-az functionapp deployment source show --name "your-app-name-functionapp" --resource-group "your-resource-group-name"
-```
-
-Check for error messages and ensure Python dependencies are compatible with Azure Functions.
-
-### 4. Authentication Issues with Microsoft Fabric
-
-If the application can't authenticate to Microsoft Fabric:
-
-1. Ensure the TENANT_ID in env.json matches your Azure tenant
-2. Verify the managed identity has been granted appropriate permissions in Microsoft Fabric
-3. Check Function App logs for authentication errors:
-
-```powershell
-az functionapp logs tail --name "your-app-name-functionapp" --resource-group "your-resource-group-name"
-```
-
-## Advanced Configuration
-
-### Custom Domain
-
-To add a custom domain to your Static Web App:
-
-1. Navigate to your Static Web App in the Azure Portal
-2. Go to "Custom domains"
-3. Follow the wizard to add and validate your domain
-
-### Environment Variables
-
-To add or modify environment variables:
-
-```powershell
-az functionapp config appsettings set --name "your-app-name-functionapp" --resource-group "your-resource-group-name" --settings "KEY=VALUE"
-```
-
-For frontend environment variables:
-
-```powershell
-az staticwebapp appsettings set --name "your-app-name" --resource-group "your-resource-group-name" --setting-names "KEY=VALUE"
-```
-
-### Scaling
-
-The default deployment uses a B1 App Service Plan. To scale up:
-
-```powershell
-az appservice plan update --name "your-app-name-functionapp-plan" --resource-group "your-resource-group-name" --sku S1
-```
-
-## Security Considerations
-
-- All API communications use HTTPS
-- Authentication uses Azure AD through your tenant
-- Sensitive configuration is stored in environment variables
-- The Function App uses managed identity for secure access to Microsoft Fabric
-- Static Web App restricts allowedIpRanges to AzureCloud by default
-
-## Support and Maintenance
-
-For additional support or to report issues:
-- Create an issue on GitHub
-- Contact the repository maintainers
+- Update environment values by editing `env.json` and re-running the deployment script (or use `az functionapp config appsettings set`).
+- Add additional frontend settings with `az staticwebapp appsettings set`.
+- Monitor performance and errors through the Application Insights instance created during deployment.
 
 ---
 
-This deployment guide was created to help you successfully deploy the Spectrum Fabric Data Agent in your environment. If you encounter any issues not covered in this guide, please refer to the Azure documentation or contact the repository maintainers.
+**Need help?** Open an issue on GitHub or contact the maintainers with the deployment logs from `deploy-to-prod.ps1`.
