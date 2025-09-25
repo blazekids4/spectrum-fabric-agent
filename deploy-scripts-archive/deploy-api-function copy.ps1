@@ -87,7 +87,8 @@ while (-not $success -and $retryCount -lt $maxRetries) {
         -g $ResourceGroup `
         -n $FunctionAppName `
         --src $zipFile `
-        --timeout $timeout
+        --timeout $timeout `
+        --build-remote true 
     
     # Check if deployment was successful
     if ($LASTEXITCODE -eq 0) {

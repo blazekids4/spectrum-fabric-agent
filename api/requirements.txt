@@ -1,21 +1,11 @@
-azure-ai-projects
-python-dotenv
-azure-identity
-azure-ai-agents
-azure-monitor-opentelemetry
-opentelemetry-instrumentation-openai
-opentelemetry-instrumentation-openai-v2
-azure-ai-evaluation
-opentelemetry-sdk
-openai
-pandas
-fastapi
-uvicorn
-gunicorn
-pydantic
-python-multipart
-aiofiles
-httpx
+# Azure Functions Core
 azure-functions
-pytest
-pytest-asyncio
+
+# Azure Identity for Authentication
+azure-identity
+
+# Microsoft Fabric Dependencies
+semantic-link
+semantic-link-sempy
+
+fabric-data-agent-sdk

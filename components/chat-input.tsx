@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Send, Loader2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
+
 interface ChatInputProps {
   onSendMessage: (message: string) => void
   isLoading?: boolean

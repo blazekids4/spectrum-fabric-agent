@@ -1,0 +1,15 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "FUNCTIONS_WORKER_RUNTIME": "python",
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "FABRIC_DATA_AGENT_NAME": "your-data-agent-name",
+    "FABRIC_WORKSPACE_ID": "your-workspace-id",
+    "FABRIC_MODEL_NAME": "gpt-4o",
+    "CORS_ALLOW_ORIGIN": "http://localhost:3000,https://your-static-web-app-url.azurestaticapps.net"
+  },
+  "Host": {
+    "LocalHttpPort": 7071,
+    "CORS": "*"
+  }
+}

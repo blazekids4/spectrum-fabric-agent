@@ -1,0 +1,65 @@
+app3# Full deployment (creates resources + deploys)
+.\deploy-to-prod.ps1 -ResourceGroup "demo-charter-app3" -StaticWebAppName "demo-charter-app3-fe" -FunctionAppName "demo-charter-app3-be"
+
+# Or just update the API
+.\deploy-api-to-azure.ps1 -ResourceGroup "demo-charter-app3" -FunctionAppName "demo-charter-app3-be"
+
+# Test after deployment
+.\test-azure-function.ps1 -FunctionUrl "https://your-func.azurewebsites.net"
+
+.\deploy-to-prod.ps1 -ResourceGroup "your-resource-group" -StaticWebAppName "your-swa-name" -FunctionAppName "your-function-name"
+.\deploy-to-prod.ps1 -ResourceGroup "demo-charter-app4" -StaticWebAppName "demo-charter-app4-fe" -FunctionAppName "demo-charter-app4-be"
+
+az functionapp config appsettings set --name demo-charter-app3-be --resource-group demo-charter-app3 --settings FABRIC_DATA_AGENT_NAME="correct-agent-name-here"
+
+./deploy-to-prod.ps1 -ResourceGroup "demo-charter-app6" -StaticWebAppName "demo-charter-app6-fe" -FunctionAppName "demo-charter-app6-be"
+
+# 1. Set environment variables
+$env:FABRIC_WORKSPACE_ID = "your-workspace-id"
+$env:TENANT_ID = "your-tenant-id"
+
+
+\start-local-dev.ps1
+
+
+
+
+
+
+
+
+
+# 2. Verify prerequisites
+az --version                    # Azure CLI
+python --version                # Python 3.11
+node --version                  # Node.js
+npm --version                   # npm
+
+# 3. Login to Azure
+az login
+az account set --subscription "your-subscription-id"
+
+# 4. Test local build
+cd api && python -m py_compile function_app.py && cd ..
+npm run build
+
+# Stream live logs from your Function App
+az webapp log tail --name demo-charter-app2-be --resource-group demo-charter-app2
+
+# Download logs to a file
+az webapp log download --name demo-charter-app2-be --resource-group demo-charter-app2 --log-file ./logs.zip
+
+# View recent deployment logs
+az webapp log deployment show --name demo-charter-app3-be --resource-group demo-charter-app3
+
+# Enable application logging
+az webapp log config --name demo-charter-app2-be --resource-group demo-charter-app2 --application-logging filesystem --level information
+
+# Open Function App in Azure Portal
+az webapp browse --name demo-charter-app2-be --resource-group demo-charter-app2
+# Then navigate to "Log stream" in the portal
+
+# Get recent traces from Application Insights
+az monitor app-insights query --app demo-charter-app2-be-insights --resource-group demo-charter-app2 --analytics-query "traces | order by timestamp desc | take 50"
+
+az webapp log tail --name demo-charter-app2-be --resource-group demo-charter-app2

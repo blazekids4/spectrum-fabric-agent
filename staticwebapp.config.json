@@ -1,28 +1,16 @@
 {
   "navigationFallback": {
     "rewrite": "/index.html",
-    "exclude": ["/api/*", "/_next/*", "/images/*", "/favicon.ico", "/static/*", "/*.js", "/*.css", "/*.png", "/*.svg", "/*.jpg", "/*.jpeg"]
+    "exclude": ["/images/*.{png,jpg,gif}", "/css/*", "/api/*"]
   },
   "responseOverrides": {
     "404": {
-      "rewrite": "/index.html",
-      "statusCode": 200
+      "rewrite": "/404.html"
     }
-  },
-  "routes": [
-    {
-      "route": "/api/*",
-      "methods": ["GET", "POST", "PUT", "DELETE"],
-      "allowedRoles": ["anonymous"]
-    }
-  ],
-  "platform": {
-    "apiRuntime": "node:20"
-  },
-  "networking": {
-    "allowedIpRanges": ["AzureCloud"]
   },
   "globalHeaders": {
-    "content-security-policy": "default-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.microsoft.com; img-src 'self' data: https://*.microsoft.com;"
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS, DELETE",
+    "Access-Control-Allow-Headers": "Content-Type, X-Client-Id"
   }
 }

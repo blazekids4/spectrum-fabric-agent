@@ -1,87 +1,94 @@
 /**
- * API Types for Charter VIP Frontend
+ * API type definitions for Spectrum Fabric Agent
  */
 
-// Chat API Types
-export interface ChatRequest {
-  session_id?: string
-  message: string
-  context?: ChatContext
-  clientId?: string
+export interface ChatMessage {
+  role: 'user' | 'assistant' | 'system'
+  content: string
+  context?: Record<string, any>
 }
 
-export interface ChatContext {
+export interface ChatRequest {
+  messages: ChatMessage[]
+  session_id?: string | null
   clientId?: string
-  timestamp?: string
-  source?: string
-  [key: string]: any // Allow additional context fields
+  context?: Record<string, any>
 }
 
 export interface ChatResponse {
+  response: string
   session_id: string
-  reply: string | null
-  metadata?: ChatMetadata
-  sources?: string[]
-}
-
-export interface ChatMetadata {
-  message_count?: number
-  analysis_type?: string
-  agents_used?: string[]
-  insights?: Record<string, any>
-  [key: string]: any
-}
-
-
-// Session Types
-export interface SessionInfo {
-  session_id: string
-  info: {
-    history: ChatMessage[]
-    created_at: string
-    metadata: Record<string, any>
+  metadata?: {
+    model?: string
+    tokens?: number
+    sources?: string[]
+    analysisType?: string
+    session_id?: string
+    client_id?: string
+    [key: string]: any
   }
 }
 
-export interface ChatMessage {
-  role: "user" | "assistant"
-  text: string
-  timestamp: string
-  sources?: string[]
-}
-
-// Error Types
 export interface APIError {
   error: string
   detail?: string
-  status?: number
+  session_id?: string
 }
 
-// Health Check Types
 export interface HealthStatus {
-  status: "healthy" | "unhealthy"
-  backend?: {
-    status: string
-    service: string
-    version: string
-    capabilities: {
-      fabric_data_agent: boolean
-      multi_agent_analysis: boolean
-    }
-  }
-  frontend?: {
-    version: string
-    environment: string
-    activeSessions: number
-  }
+  status: 'healthy' | 'unhealthy'
+  service?: string
+  version?: string
+  fabric_status?: string
+  data_agent?: string
+  timestamp?: string
   error?: string
+  frontend?: string
+  backend?: string
 }
 
-// Utility type guards
-export function isAPIError(response: any): response is APIError {
-  return response && typeof response.error === "string"
+export interface ConfigResponse {
+  environment: string
+  version: string
+  managed_identity_enabled: boolean
+  data_agent_configured: boolean
+  workspace_configured: boolean
+  model: string
+  features: {
+    sessionManagement: boolean
+    contextAware: boolean
+    multiTurn: boolean
+  }
 }
 
-export function isChatResponse(response: any): response is ChatResponse {
-  return response && typeof response.session_id === "string"
+export interface QueryRequest {
+  question: string
+  session_id?: string
+  clientId?: string
+}
+
+export interface QueryResponse {
+  response: string
+  session_id: string
+  metadata?: Record<string, any>
+}
+
+export interface Session {
+  id: string
+  client_id?: string
+  created: string
+  messages: ChatMessage[]
+}
+
+// Type guards
+export function isChatResponse(data: any): data is ChatResponse {
+  return data && typeof data.response === 'string' && typeof data.session_id === 'string'
+}
+
+export function isAPIError(data: any): data is APIError {
+  return data && typeof data.error === 'string'
+}
+
+export function isHealthStatus(data: any): data is HealthStatus {
+  return data && typeof data.status === 'string'
 }

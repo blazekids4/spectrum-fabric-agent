@@ -13,10 +13,7 @@ param(
     
     [Parameter(Mandatory=$false)]
     [string]$Environment = "production"
-
 )
-
-
 
 Write-Host "Deploying to Azure Static Web Apps for PRODUCTION..." -ForegroundColor Green
 
@@ -99,15 +96,6 @@ $settingsArray += "WEBSITE_MOUNT_ENABLED=1"
 $settingsArray += "PYTHON_ISOLATE_WORKER_DEPENDENCIES=1"
 $settingsArray += "AzureWebJobsFeatureFlags=EnableWorkerIndexing"
 
-# Add Fabric-specific settings
-$settingsArray += "FABRIC_API_ENDPOINT=https://api.fabric.microsoft.com/v1"
-if ($env:FABRIC_WORKSPACE_ID) {
-    $settingsArray += "FABRIC_WORKSPACE_ID=$($env:FABRIC_WORKSPACE_ID)"
-}
-if ($env:TENANT_ID) {
-    $settingsArray += "TENANT_ID=$($env:TENANT_ID)"
-}
-
 # Apply all settings at once
 Write-Host "Applying Function App settings..." -ForegroundColor Green
 az functionapp config appsettings set `
@@ -149,22 +137,13 @@ Push-Location api
 
 try {
     # Verify required files
-    $requiredFiles = @("requirements.txt", "function_app.py")
+    $requiredFiles = @("requirements.txt")
     foreach ($file in $requiredFiles) {
         if (!(Test-Path -Path $file)) {
             Write-Host "Error: Required file '$file' not found." -ForegroundColor Red
             Pop-Location
             exit 1
         }
-    }
-    
-    # Validate Python syntax before deployment
-    Write-Host "Validating Python syntax..." -ForegroundColor Cyan
-    python -m py_compile function_app.py
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "Error: Python syntax errors in function_app.py" -ForegroundColor Red
-        Pop-Location
-        exit 1
     }
     
     # Create host.json if it doesn't exist
@@ -183,7 +162,7 @@ try {
   },
   "extensionBundle": {
     "id": "Microsoft.Azure.Functions.ExtensionBundle",
-    "version": "[4.*, 5.0.0)"
+    "version": "[3.*, 4.0.0)"
   },
   "extensions": {
     "http": {
@@ -251,14 +230,6 @@ __pycache__/
         }
     }
     
-    # After copying files, verify function_app.py exists in deployment package
-    if (!(Test-Path -Path (Join-Path $tempDir "function_app.py"))) {
-        Write-Host "Error: function_app.py not found in deployment package" -ForegroundColor Red
-        Remove-Item -Path $tempDir -Recurse -Force
-        Pop-Location
-        exit 1
-    }
-    
     # Install Python dependencies
     Write-Host "Installing Python dependencies for deployment..." -ForegroundColor Cyan
     $libDir = Join-Path $tempDir ".python_packages\lib\site-packages"
@@ -269,26 +240,16 @@ __pycache__/
     $pipSuccess = $false
     for ($i = 1; $i -le $pipRetries; $i++) {
         try {
-            Write-Host "Installing dependencies (attempt $i of $pipRetries)..." -ForegroundColor Gray
+            # Try to install with platform-specific wheels first
+            pip install --target=$libDir --platform linux_x86_64 --only-binary=:all: -r requirements.txt --no-deps 2>$null
             
-            # Use simple pip install without platform specification
-            $pipCommand = "pip install --target=`"$libDir`" -r requirements.txt --upgrade --no-cache-dir"
+            # Install any remaining packages
+            pip install --target=$libDir -r requirements.txt --upgrade
             
-            # Execute pip command
-            $result = Invoke-Expression $pipCommand 2>&1
-            
-            if ($LASTEXITCODE -eq 0) {
-                $pipSuccess = $true
-                Write-Host "Dependencies installed successfully!" -ForegroundColor Green
-                break
-            } else {
-                Write-Host "Pip install failed with exit code: $LASTEXITCODE" -ForegroundColor Yellow
-            }
+            $pipSuccess = $true
+            break
         } catch {
-            Write-Host "Pip install attempt $i failed: $_" -ForegroundColor Yellow
-        }
-        
-        if ($i -lt $pipRetries) {
+            Write-Host "Pip install attempt $i failed, retrying..." -ForegroundColor Yellow
             Start-Sleep -Seconds 5
         }
     }
@@ -299,7 +260,7 @@ __pycache__/
         Pop-Location
         exit 1
     }
-
+    
     # Create deployment zip
     $zipPath = Join-Path $env:TEMP "funcapp-$(Get-Date -Format 'yyyyMMddHHmmss').zip"
     Write-Host "Creating deployment package..." -ForegroundColor Cyan
@@ -353,61 +314,25 @@ __pycache__/
     
     # Verify deployment
     Write-Host "Verifying Function App deployment..." -ForegroundColor Green
+    $functions = az functionapp function list --name $FunctionAppName --resource-group $ResourceGroup -o json | ConvertFrom-Json
     
-    # Add a longer wait for functions to register
-    Write-Host "Waiting for functions to register (this can take up to 2 minutes)..." -ForegroundColor Yellow
-    Start-Sleep -Seconds 60
-    
-    # Try multiple times to list functions
-    $maxAttempts = 3
-    $functionsFound = $false
-    
-    for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
-        Write-Host "Checking for deployed functions (attempt $attempt of $maxAttempts)..." -ForegroundColor Gray
-        $functions = az functionapp function list --name $FunctionAppName --resource-group $ResourceGroup -o json | ConvertFrom-Json
-        
-        if ($functions.Count -gt 0) {
-            $functionsFound = $true
-            Write-Host "Successfully deployed $($functions.Count) function(s):" -ForegroundColor Green
-            foreach ($func in $functions) {
-                Write-Host "  - $($func.name)" -ForegroundColor Cyan
-            }
-            break
-        } else {
-            if ($attempt -lt $maxAttempts) {
-                Write-Host "No functions detected yet, waiting..." -ForegroundColor Yellow
-                Start-Sleep -Seconds 30
-            }
+    if ($functions.Count -gt 0) {
+        Write-Host "Successfully deployed $($functions.Count) function(s):" -ForegroundColor Green
+        foreach ($func in $functions) {
+            Write-Host "  - $($func.name)" -ForegroundColor Cyan
         }
-    }
-    
-    if (-not $functionsFound) {
-        Write-Host "WARNING: No functions detected after $maxAttempts attempts." -ForegroundColor Yellow
-        
-        # Get Function App hostname for testing
-        $testFunctionAppHostname = az functionapp show --name $FunctionAppName --resource-group $ResourceGroup --query defaultHostName -o tsv
-        
-        # Test the function directly
-        Write-Host "`nTesting function endpoints directly..." -ForegroundColor Cyan
-        $functionUrl = "https://$testFunctionAppHostname"
-        
-        try {
-            $healthResponse = Invoke-WebRequest -Uri "$functionUrl/api/health" -Method Get -TimeoutSec 10
-            Write-Host "✓ Health endpoint is responding (Status: $($healthResponse.StatusCode))" -ForegroundColor Green
-            Write-Host "  Functions are deployed but may not be listed immediately." -ForegroundColor Gray
-        } catch {
-            Write-Host "✗ Health endpoint not responding" -ForegroundColor Red
-            Write-Host "  Error: $_" -ForegroundColor Gray
-        }
+    } else {
+        Write-Host "WARNING: No functions detected. Checking deployment logs..." -ForegroundColor Yellow
         
         # Get deployment logs
-        Write-Host "`nRecent deployment logs:" -ForegroundColor Yellow
+        Write-Host "Recent deployment logs:" -ForegroundColor Yellow
         az webapp log deployment show --name $FunctionAppName --resource-group $ResourceGroup --query "[-5:].{Time:time,Message:message}" -o table
         
         Write-Host "`nTroubleshooting steps:" -ForegroundColor Yellow
         Write-Host "1. Check function_app.py has proper function decorators (@app.route)" -ForegroundColor White
-        Write-Host "2. Check live logs: az functionapp log tail --name $FunctionAppName --resource-group $ResourceGroup" -ForegroundColor White
-        Write-Host "3. Review Kudu console: https://$FunctionAppName.scm.azurewebsites.net" -ForegroundColor White
+        Write-Host "2. Verify Python syntax: python -m py_compile function_app.py" -ForegroundColor White
+        Write-Host "3. Check live logs: az functionapp log tail --name $FunctionAppName --resource-group $ResourceGroup" -ForegroundColor White
+        Write-Host "4. Review Kudu console: https://$FunctionAppName.scm.azurewebsites.net" -ForegroundColor White
     }
     
 } finally {
@@ -454,8 +379,8 @@ try {
 Write-Host "Building and deploying frontend for production..." -ForegroundColor Green
 
 # Set environment variables for the build
-$env:NEXT_PUBLIC_API_URL = "https://$functionAppHostname"  # Remove /api suffix
-$env:PYTHON_API_URL = "https://$functionAppHostname"
+$env:NEXT_PUBLIC_API_URL = "https://$functionAppHostname/api"
+$env:PYTHON_API_URL = "https://$functionAppHostname/api"
 $env:NODE_ENV = "production"
 
 # Build the frontend with production optimization
@@ -473,8 +398,8 @@ if (!(Test-Path -Path "out")) {
 $token = az staticwebapp secrets list --name $StaticWebAppName --resource-group $ResourceGroup --query "properties.apiKey" -o tsv
 
 Write-Host "Deploying to Static Web App..." -ForegroundColor Green
-# Deploy using the SWA CLI (without API parameters since we're using separate Function App)
-npx @azure/static-web-apps-cli deploy --app-location out --deployment-token $token --env production
+# Deploy using the SWA CLI with production configuration
+npx @azure/static-web-apps-cli deploy --api-language python --api-version 3.11 --api-location api --app-location out --deployment-token $token --env production
 
 # Verify deployment was successful
 if ($LASTEXITCODE -ne 0) {

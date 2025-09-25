@@ -1,20 +1,21 @@
 {
-  "name": "my-v0-project",
+  "name": "ai-leen",
   "version": "0.1.0",
   "private": true,
   "engines": {
-  "node": ">=22.0.0",
-  "npm": ">=10.0.0"
+    "node": ">=22.0.0",
+    "npm": ">=10.0.0"
   },
   "scripts": {
-    "backend-dev": "cd api && python app.py",
-    "next-dev": "next dev",
-    "dev": "concurrently \"npm run next-dev\" \"npm run backend-dev\"",
+    "dev": "concurrently \"npm run next-dev\" \"npm run func-dev\"",
     "build": "next build",
-    "start": "next start -p ${PORT:-3000}",
-    "start:azure": "node server.js",
-    "deploy:swa": "swa deploy .next --api-location api",
-    "lint": "next lint"
+    "start": "next start",
+    "lint": "next lint",
+    "next-dev": "next dev",
+    "func-dev": "cd api && func start --python",
+    "swa-dev": "swa start http://localhost:3000 --api-location ./api",
+    "swa-build": "next build && cd api && func azure functionapp publish",
+    "deploy": "npm run build && swa deploy dist --api-location api"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

@@ -29,7 +29,7 @@ export default function Home() {
        
           <div className="mt-4 text-center">
             <p className="text-sm text-red-600">
-            Please note this demo has been created with actual customer call data from September 1st, 2025.
+            Please note this demo has been created with actual customer call data from September 8th to 17th, 2025.
             </p>
           </div>
           <div>

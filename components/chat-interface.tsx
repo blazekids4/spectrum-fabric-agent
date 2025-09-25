@@ -7,8 +7,6 @@ import { ChatInput } from "./chat-input"
 import { ChatHeader } from "./chat-header"
 import { Card } from "@/components/ui/card"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { chatClient } from "@/lib/chat-client"
-import { isAPIError, type ChatResponse } from "@/types/api"
 import { AlertCircle } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 
@@ -40,7 +38,7 @@ export function ChatInterface() {
 
   // Initialize session on mount
   useEffect(() => {
-    const storedSessionId = chatClient.getStoredSessionId()
+    const storedSessionId = localStorage.getItem('chat-session-id')
     if (storedSessionId) {
       setSessionId(storedSessionId)
     }
@@ -74,47 +72,52 @@ export function ChatInterface() {
     setIsLoading(true)
 
     try {
-      const response = await chatClient.sendMessage(content, sessionId)
+      // Call the Azure Functions API
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messages: [
+            {
+              role: 'user',
+              content: content
+            }
+          ],
+          session_id: sessionId,
+        }),
+      })
 
-      if (isAPIError(response)) {
-        setError(response.detail || response.error)
-        
-        const errorMessage: Message = {
-          id: (Date.now() + 1).toString(),
-          content: `I apologize, but I encountered an error: ${response.error}. Please try again or rephrase your question.`,
-          isUser: false,
-          timestamp: new Date(),
-        }
-        setMessages((prev) => [...prev, errorMessage])
-      } else {
-        const chatResponse = response as ChatResponse
-        
-        // Update session ID if needed
-        if (chatResponse.session_id && chatResponse.session_id !== sessionId) {
-          setSessionId(chatResponse.session_id)
-        }
+      const result = await response.json()
 
-        const assistantMessage: Message = {
-          id: (Date.now() + 1).toString(),
-          content: chatResponse.reply || "I couldn't generate a response. Please try again.",
-          isUser: false,
-          timestamp: new Date(),
-          metadata: {
-            sources: chatResponse.sources,
-            analysisType: chatResponse.metadata?.analysis_type
-          }
-        }
-
-        setMessages((prev) => [...prev, assistantMessage])
+      if (!response.ok || 'error' in result) {
+        throw new Error(result.detail || result.error || 'Failed to send message')
       }
+
+      // Update session ID if provided by the backend
+      if (result.session_id && result.session_id !== sessionId) {
+        setSessionId(result.session_id)
+        localStorage.setItem('chat-session-id', result.session_id)
+      }
+
+      const assistantMessage: Message = {
+        id: `ai-${Date.now()}`,
+        content: result.response || "I couldn't generate a response. Please try again.",
+        isUser: false,
+        timestamp: new Date(),
+        metadata: result.metadata
+      }
+
+      setMessages((prev) => [...prev, assistantMessage])
     } catch (error) {
       console.error("Chat error:", error)
-      setError("Network error occurred. Please check your connection.")
+      setError(error instanceof Error ? error.message : "An unexpected error occurred")
 
       const errorMessage: Message = {
         id: (Date.now() + 1).toString(),
         content:
-          "I'm having trouble connecting to the backend services. Please ensure the backend is running and try again.",
+          "I'm having trouble processing your request. Please ensure the backend is running and try again.",
         isUser: false,
         timestamp: new Date(),
       }
@@ -127,7 +130,16 @@ export function ChatInterface() {
 
   const handleClearSession = async () => {
     if (sessionId) {
-      await chatClient.clearSession(sessionId)
+      try {
+        // Call the Azure Functions API to delete the session
+        await fetch(`/api/sessions/${sessionId}`, {
+          method: 'DELETE',
+        })
+      } catch (error) {
+        console.error("Failed to clear session on server:", error)
+      }
+      
+      localStorage.removeItem('chat-session-id')
       setSessionId(null)
       setMessages([messages[0]]) // Keep only welcome message
       setError(null)

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://aka.ms/azure/static-web-apps-cli/schema",
+  "configurations": {
+    "spectrum-fabric-agent": {
+      "appLocation": ".",
+      "outputLocation": ".next",
+      "appBuildCommand": "npm run build",
+      "apiLocation": "api",
+      "apiLanguage": "python",
+      "apiVersion": "4.1",
+      "appDevserverUrl": "http://localhost:3000",
+      "run": "npm run next-dev"
+    }
+  }
+}

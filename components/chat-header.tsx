@@ -2,9 +2,9 @@ import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { RefreshCw, Activity } from "lucide-react"
 import { useState, useEffect } from "react"
-import { chatClient } from "@/lib/chat-client"
 import { cn } from "@/lib/utils"
 import Image from "next/image"
+
 interface ChatHeaderProps {
   onClearSession?: () => void
 }
@@ -15,8 +15,18 @@ export function ChatHeader({ onClearSession }: ChatHeaderProps) {
   useEffect(() => {
     // Check backend health on mount
     const checkHealth = async () => {
-      const health = await chatClient.checkHealth()
-      setIsHealthy(health.status === "healthy")
+      try {
+        const response = await fetch('/api/health')
+        if (response.ok) {
+          const health = await response.json()
+          setIsHealthy(health.status === "healthy")
+        } else {
+          setIsHealthy(false)
+        }
+      } catch (error) {
+        console.error('Health check failed:', error)
+        setIsHealthy(false)
+      }
     }
     checkHealth()
 
@@ -25,7 +35,7 @@ export function ChatHeader({ onClearSession }: ChatHeaderProps) {
     return () => clearInterval(interval)
   }, [])
 
-    return (
+  return (
     <Card className="rounded-none border-0 border-b p-4 bg-gradient-to-r from-primary/1 to-primary/2">
       <div className="flex items-center justify-between">
         {/* Left: Spectrum Logo */}

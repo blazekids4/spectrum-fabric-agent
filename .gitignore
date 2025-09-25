@@ -7,6 +7,7 @@ do_not_deploy/
 __pycache__/
 
 env*
+venv
 
 venv/
 env/
